@@ -1627,13 +1627,31 @@ See docs/deacon-plugins.md for full documentation.
 		return fmt.Errorf("creating rig plugins directory: %w", err)
 	}
 
-	// Add plugins/, .repo.git/, and .land-worktree/ to rig .gitignore
+	// Add Gas Town directories to rig .gitignore so they don't pollute the project repo.
 	gitignorePath := filepath.Join(rigPath, ".gitignore")
-	if err := m.ensureGitignoreEntry(gitignorePath, "plugins/"); err != nil {
-		return err
+	gitignoreEntries := []string{
+		"plugins/",
+		".repo.git/",
+		".land-worktree/",
+		"config.json",
+		"crew/",
+		"mayor/",
+		"polecats/",
+		"refinery/",
+		"witness/",
+		"settings/",
+		".runtime/",
+		"**/state.json",
+		"**/*.lock",
+		"**/*.flock",
+		"**/locks/",
+		"**/audit.log",
+		"**/.gt-types-configured",
 	}
-	if err := m.ensureGitignoreEntry(gitignorePath, ".repo.git/"); err != nil {
-		return err
+	for _, entry := range gitignoreEntries {
+		if err := m.ensureGitignoreEntry(gitignorePath, entry); err != nil {
+			return err
+		}
 	}
-	return m.ensureGitignoreEntry(gitignorePath, ".land-worktree/")
+	return nil
 }
