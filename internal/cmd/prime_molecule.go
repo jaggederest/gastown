@@ -305,32 +305,41 @@ func buildRefineryPatrolVars(ctx RoleContext) []string {
 	}
 	vars = append(vars, fmt.Sprintf("target_branch=%s", defaultBranch))
 
-	// MQ-specific vars require settings/config.json with a merge_queue section
+	// MQ-specific vars: try settings/config.json first (legacy format), then
+	// fall back to the layered rig config (bead labels / wisp layer).
 	settingsPath := filepath.Join(rigPath, "settings", "config.json")
 	settings, sErr := config.LoadRigSettings(settingsPath)
-	if sErr != nil || settings == nil || settings.MergeQueue == nil {
+	if sErr == nil && settings != nil && settings.MergeQueue != nil {
+		mq := settings.MergeQueue
+		vars = append(vars, fmt.Sprintf("integration_branch_refinery_enabled=%t", mq.IsRefineryIntegrationEnabled()))
+		vars = append(vars, fmt.Sprintf("integration_branch_auto_land=%t", mq.IsIntegrationBranchAutoLandEnabled()))
+		vars = append(vars, fmt.Sprintf("run_tests=%t", mq.IsRunTestsEnabled()))
+		if mq.SetupCommand != "" {
+			vars = append(vars, fmt.Sprintf("setup_command=%s", mq.SetupCommand))
+		}
+		if mq.TypecheckCommand != "" {
+			vars = append(vars, fmt.Sprintf("typecheck_command=%s", mq.TypecheckCommand))
+		}
+		if mq.LintCommand != "" {
+			vars = append(vars, fmt.Sprintf("lint_command=%s", mq.LintCommand))
+		}
+		if mq.TestCommand != "" {
+			vars = append(vars, fmt.Sprintf("test_command=%s", mq.TestCommand))
+		}
+		if mq.BuildCommand != "" {
+			vars = append(vars, fmt.Sprintf("build_command=%s", mq.BuildCommand))
+		}
+		vars = append(vars, fmt.Sprintf("delete_merged_branches=%t", mq.IsDeleteMergedBranchesEnabled()))
 		return vars
 	}
-	mq := settings.MergeQueue
 
-	vars = append(vars, fmt.Sprintf("integration_branch_refinery_enabled=%t", mq.IsRefineryIntegrationEnabled()))
-	vars = append(vars, fmt.Sprintf("integration_branch_auto_land=%t", mq.IsIntegrationBranchAutoLandEnabled()))
-	vars = append(vars, fmt.Sprintf("run_tests=%t", mq.IsRunTestsEnabled()))
-	if mq.SetupCommand != "" {
-		vars = append(vars, fmt.Sprintf("setup_command=%s", mq.SetupCommand))
+	// Fallback: read command vars from layered rig config (bead labels / wisp).
+	// This is the path for rigs that use gt rig config set instead of settings/config.json.
+	r := &rig.Rig{Name: ctx.Rig, Path: rigPath}
+	for _, key := range []string{"setup_command", "typecheck_command", "lint_command", "test_command", "build_command"} {
+		if val, ok := r.GetConfig(key).(string); ok && val != "" {
+			vars = append(vars, fmt.Sprintf("%s=%s", key, val))
+		}
 	}
-	if mq.TypecheckCommand != "" {
-		vars = append(vars, fmt.Sprintf("typecheck_command=%s", mq.TypecheckCommand))
-	}
-	if mq.LintCommand != "" {
-		vars = append(vars, fmt.Sprintf("lint_command=%s", mq.LintCommand))
-	}
-	if mq.TestCommand != "" {
-		vars = append(vars, fmt.Sprintf("test_command=%s", mq.TestCommand))
-	}
-	if mq.BuildCommand != "" {
-		vars = append(vars, fmt.Sprintf("build_command=%s", mq.BuildCommand))
-	}
-	vars = append(vars, fmt.Sprintf("delete_merged_branches=%t", mq.IsDeleteMergedBranchesEnabled()))
 	return vars
 }
