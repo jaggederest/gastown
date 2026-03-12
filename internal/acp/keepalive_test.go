@@ -24,6 +24,7 @@ func TestProxy_RunKeepAlive_Logic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	p.cmd = exec.CommandContext(ctx, "sleep", "100")
+	p.setupProcessGroup()
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("failed to start dummy process: %v", err)
 	}

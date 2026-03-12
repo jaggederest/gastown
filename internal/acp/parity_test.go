@@ -2,6 +2,7 @@ package acp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os/exec"
@@ -79,11 +80,12 @@ func TestWriteToAgent_Parity(t *testing.T) {
 			p := NewProxy()
 
 			// Mock process as alive
-			cmd := exec.Command("sleep", "1")
+			cmd := exec.CommandContext(context.Background(), "sleep", "1")
+			p.cmd = cmd
+			p.setupProcessGroup()
 			if err := cmd.Start(); err != nil {
 				t.Fatalf("failed to start process: %v", err)
 			}
-			p.cmd = cmd
 			defer cmd.Process.Kill()
 
 			var buf bytes.Buffer

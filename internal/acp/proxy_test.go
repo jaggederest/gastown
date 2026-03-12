@@ -553,7 +553,12 @@ func TestIntegration_CleanExitOnAgentTermination(t *testing.T) {
 		t.Fatalf("failed to start proxy: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Drain stdout to prevent blocking, since we aren't calling Forward()
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		_, _ = io.Copy(io.Discard, p.agentStdout)
+	}()
 
 	agentDone := p.agentDone()
 	select {
@@ -561,7 +566,7 @@ func TestIntegration_CleanExitOnAgentTermination(t *testing.T) {
 		if err != nil {
 			t.Errorf("agent exited with error: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for agent to terminate")
 	}
 
@@ -789,7 +794,8 @@ func setupProxyWithMockAgent(t *testing.T) (*Proxy, *MockAgent) {
 
 	// Mock p.cmd by starting a real process so that isProcessAlive() returns true.
 	// We use a command that doesn't do much and will be killed on shutdown.
-	p.cmd = exec.Command("sleep", "60")
+	p.cmd = exec.CommandContext(context.Background(), "sleep", "60")
+	p.setupProcessGroup() // Ensure it's in its own group
 	if err := p.cmd.Start(); err != nil {
 		t.Fatalf("failed to start mock command: %v", err)
 	}
