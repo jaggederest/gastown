@@ -39,8 +39,8 @@ func TestGetThemeByName(t *testing.T) {
 		name  string
 		want  bool
 	}{
-		{"ocean", true},
-		{"forest", true},
+		{"sky", true},
+		{"sage", true},
 		{"nonexistent", false},
 		{"", false},
 	}
@@ -93,7 +93,7 @@ func TestListThemeNames(t *testing.T) {
 		found[name] = true
 	}
 
-	for _, want := range []string{"ocean", "forest", "rust"} {
+	for _, want := range []string{"sky", "sage", "peach"} {
 		if !found[want] {
 			t.Errorf("ListThemeNames() missing %q", want)
 		}
