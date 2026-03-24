@@ -32,16 +32,16 @@ type Theme struct {
 // DefaultPalette is the curated set of distinct, professional color themes.
 // Each theme has good contrast and is visually distinct from others.
 var DefaultPalette = []Theme{
-	{Name: "ocean", BG: "#1e3a5f", FG: "#e0e0e0"},    // Deep blue
-	{Name: "forest", BG: "#2d5a3d", FG: "#e0e0e0"},   // Forest green
-	{Name: "rust", BG: "#8b4513", FG: "#f5f5dc"},     // Rust/brown
-	{Name: "plum", BG: "#4a3050", FG: "#e0e0e0"},     // Purple
-	{Name: "slate", BG: "#4a5568", FG: "#e0e0e0"},    // Slate gray
-	{Name: "ember", BG: "#b33a00", FG: "#f5f5dc"},    // Burnt orange
-	{Name: "midnight", BG: "#1a1a2e", FG: "#c0c0c0"}, // Dark blue-black
-	{Name: "wine", BG: "#722f37", FG: "#f5f5dc"},     // Burgundy
-	{Name: "teal", BG: "#0d5c63", FG: "#e0e0e0"},     // Teal
-	{Name: "copper", BG: "#6d4c41", FG: "#f5f5dc"},   // Warm brown
+	{Name: "sky", BG: "#c8dff0", FG: "#1a3a5a"},     // Light blue
+	{Name: "sage", BG: "#c8e0cc", FG: "#1a3d22"},    // Light green
+	{Name: "peach", BG: "#f0d0b8", FG: "#5a2a00"},   // Light peach
+	{Name: "lavender", BG: "#ddd0e8", FG: "#3a1a55"}, // Light purple
+	{Name: "silver", BG: "#d8dde8", FG: "#1a2040"},  // Light gray-blue
+	{Name: "amber", BG: "#f5e8c0", FG: "#5a3a00"},   // Light amber
+	{Name: "fog", BG: "#e0e8f0", FG: "#202840"},     // Light blue-gray
+	{Name: "rose", BG: "#f0d0d5", FG: "#5a1520"},    // Light rose
+	{Name: "mint", BG: "#c8e8e0", FG: "#0a3d35"},    // Light mint
+	{Name: "sand", BG: "#e8dcc8", FG: "#3d2810"},    // Light sand
 }
 
 // MayorTheme returns the special theme for the Mayor session.
@@ -52,15 +52,15 @@ func MayorTheme() Theme {
 }
 
 // DeaconTheme returns the special theme for the Deacon session.
-// Purple/silver - ecclesiastical, distinct from Mayor's gold.
+// Light purple - ecclesiastical, distinct from Mayor's terminal default.
 func DeaconTheme() Theme {
-	return Theme{Name: "deacon", BG: "#2d1f3d", FG: "#c0b0d0"}
+	return Theme{Name: "deacon", BG: "#e8d8f0", FG: "#3d1a55"}
 }
 
 // DogTheme returns the theme for Dog sessions.
-// Brown/tan - earthy, loyal worker aesthetic.
+// Light tan - earthy, loyal worker aesthetic.
 func DogTheme() Theme {
-	return Theme{Name: "dog", BG: "#3d2f1f", FG: "#d0c0a0"}
+	return Theme{Name: "dog", BG: "#ede5d5", FG: "#3d2810"}
 }
 
 // GetThemeByName finds a theme by name from the default palette.
