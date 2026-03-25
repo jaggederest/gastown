@@ -18,6 +18,7 @@ import (
 // It lazily opens the log file on first use and keeps it open for the session.
 type acpDebugLogger struct {
 	mu       sync.Mutex
+	once     sync.Once
 	file     *os.File
 	townRoot string
 	enabled  bool
@@ -27,17 +28,10 @@ var debugLogger = &acpDebugLogger{
 	enabled: os.Getenv("GT_ACP_DEBUG") != "",
 }
 
-// init opens the log file if debugging is enabled. It is called lazily
-// when the first debug log is written, with the townRoot context.
+// init opens the log file if debugging is enabled. It is called exactly once
+// via sync.Once in debugLog — no mutex or nil-check guard needed here.
 func (l *acpDebugLogger) init(townRoot string) error {
 	if !l.enabled {
-		return nil
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.file != nil {
 		return nil
 	}
 
@@ -96,13 +90,10 @@ func debugLog(townRoot, format string, args ...any) {
 	if !debugLogger.enabled {
 		return
 	}
-	// Lazy init - only creates file on first debug log
-	if debugLogger.file == nil {
-		if err := debugLogger.init(townRoot); err != nil {
-			// Can't log anywhere useful if file init fails, silently return
-			return
-		}
-	}
+	// Lazy init - sync.Once ensures thread-safe single initialization
+	debugLogger.once.Do(func() {
+		_ = debugLogger.init(townRoot)
+	})
 	debugLogger.log(format, args...)
 }
 
