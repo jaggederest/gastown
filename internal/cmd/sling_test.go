@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -2580,6 +2581,61 @@ func TestSlingRejectsDeferredBead(t *testing.T) {
 				if strings.Contains(err.Error(), "refusing to sling deferred") {
 					t.Fatalf("unexpected deferred rejection: %v", err)
 				}
+			}
+		})
+	}
+}
+
+// TestResolveTargetTwoPartDeadPolecatFallback verifies that a 2-part shorthand
+// target like "gastown/nux" falls back to spawning a fresh polecat when the
+// polecat session is dead (gt-l36 regression test).
+//
+// Previously, isPolecatTarget required len(parts) >= 3 so "gastown/nux" (2 parts)
+// never triggered the dead-session spawn fallback and returned an error instead.
+func TestResolveTargetTwoPartDeadPolecatFallback(t *testing.T) {
+	// Stub resolveTargetAgentFn to simulate dead session (always returns error)
+	prevAgent := resolveTargetAgentFn
+	t.Cleanup(func() { resolveTargetAgentFn = prevAgent })
+	resolveTargetAgentFn = func(target string) (string, string, string, error) {
+		return "", "", "", fmt.Errorf("getting pane for gt-nux: exit status 1")
+	}
+
+	// Stub spawnPolecatForSling to record the call
+	prevSpawn := spawnPolecatForSling
+	t.Cleanup(func() { spawnPolecatForSling = prevSpawn })
+	var spawnedRig string
+	spawnPolecatForSling = func(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+		spawnedRig = rigName
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: "nux",
+			ClonePath:   t.TempDir(),
+		}, nil
+	}
+
+	tests := []struct {
+		target  string
+		wantRig string
+	}{
+		// 2-part shorthand — the bug: these should spawn, not error
+		{"gastown/nux", "gastown"},
+		{"gastown/slit", "gastown"},
+		// 3-part explicit — should still work
+		{"gastown/polecats/nux", "gastown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.target, func(t *testing.T) {
+			spawnedRig = ""
+			result, err := resolveTarget(tt.target, ResolveTargetOptions{})
+			if err != nil {
+				t.Fatalf("resolveTarget(%q) returned error: %v (expected spawn fallback)", tt.target, err)
+			}
+			if spawnedRig != tt.wantRig {
+				t.Errorf("resolveTarget(%q) spawned rig %q, want %q", tt.target, spawnedRig, tt.wantRig)
+			}
+			if result.NewPolecatInfo == nil {
+				t.Errorf("resolveTarget(%q) result.NewPolecatInfo is nil, expected spawn info", tt.target)
 			}
 		})
 	}

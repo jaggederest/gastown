@@ -210,6 +210,42 @@ func TestCollectExistingMoleculesFiltersClosedMolecules(t *testing.T) {
 	}
 }
 
+func TestPolecatRigFromTarget(t *testing.T) {
+	tests := []struct {
+		target  string
+		wantRig string
+		wantOk  bool
+	}{
+		// 3-part explicit polecat paths
+		{"gastown/polecats/nux", "gastown", true},
+		{"gastown/polecats/slit", "gastown", true},
+		{"myrig/polecats/bob", "myrig", true},
+		// 2-part polecat shorthand (the bug: these were returning false)
+		{"gastown/nux", "gastown", true},
+		{"gastown/slit", "gastown", true},
+		{"myrig/bob", "myrig", true},
+		// 2-part non-polecat roles must NOT match
+		{"gastown/witness", "", false},
+		{"gastown/refinery", "", false},
+		{"gastown/crew", "", false},
+		{"gastown/polecats", "", false},
+		// Edge cases
+		{"", "", false},
+		{"gastown", "", false},
+		{"mayor/", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.target, func(t *testing.T) {
+			gotRig, gotOk := polecatRigFromTarget(tt.target)
+			if gotOk != tt.wantOk || gotRig != tt.wantRig {
+				t.Errorf("polecatRigFromTarget(%q) = (%q, %v), want (%q, %v)",
+					tt.target, gotRig, gotOk, tt.wantRig, tt.wantOk)
+			}
+		})
+	}
+}
+
 func TestIsSlingConfigError(t *testing.T) {
 	tests := []struct {
 		name string
