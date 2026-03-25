@@ -538,6 +538,7 @@ func (t *Tmux) KillSession(name string) (retErr error) {
 	if retErr == ErrSessionNotFound || retErr == ErrNoServer {
 		retErr = nil
 	}
+	evictNudgeLock(name)
 	return retErr
 }
 
@@ -1206,6 +1207,12 @@ func releaseNudgeLock(session string) {
 	default:
 		// Lock wasn't held — shouldn't happen, but don't block
 	}
+}
+
+// evictNudgeLock removes the per-session nudge semaphore from sessionNudgeLocks.
+// Call this when a session is killed to prevent unbounded map growth.
+func evictNudgeLock(session string) {
+	sessionNudgeLocks.Delete(session)
 }
 
 // nudgeFlockPath returns the filesystem lock path for cross-process nudge serialization.
