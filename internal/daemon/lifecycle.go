@@ -840,11 +840,10 @@ func (d *Daemon) getAgentBeadInfo(agentBeadID string) (*AgentBeadInfo, error) {
 		info.Rig = fields.Rig
 	}
 
-	// Use AgentState from database column directly (not from description).
-	// UpdateAgentState updates the DB column but not the description text,
-	// so the description can contain stale state (e.g., "spawning" after
-	// the polecat has transitioned to "working"). Fall back to description
-	// only if the DB column is empty (legacy beads).
+	// Prefer the agent_state DB column when present (legacy bd versions).
+	// bd 0.62.0+ removed the `bd agent state` command and no longer populates
+	// this column, so description-derived state is authoritative in current
+	// installations. UpdateAgentState now writes only to the description.
 	info.State = issue.AgentState
 	if info.State == "" && fields != nil {
 		info.State = fields.AgentState
