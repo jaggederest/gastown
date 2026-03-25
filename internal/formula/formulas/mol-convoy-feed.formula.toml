@@ -158,9 +158,14 @@ For each dispatch:
 - Success: Note issue ID, target rig, polecat assigned
 - Failure: Note issue ID, error message
 
-**Important notes:**
-- `gt sling` handles polecat selection automatically
-- It will spawn a new polecat if none available
+**IMPORTANT: sling target must be the rig name only.**
+- Use `gastown`, `beads`, `locque`, etc. as the target — NOT `gastown/polecat` or `gastown/<name>`
+- `gt sling` handles polecat selection automatically. NEVER specify a polecat name in the target.
+- Wrong: `gt sling gt-abc123 gastown/polecat` or `gt sling gt-abc123 gastown/nux`
+- Right: `gt sling gt-abc123 gastown`
+
+**Other notes:**
+- `gt sling` will spawn a new polecat if none available
 - The polecat gets the issue hooked and starts immediately
 - Don't wait for polecat to complete - fire and forget
 
