@@ -1692,6 +1692,11 @@ func TestIsGasTownRuntimePath(t *testing.T) {
 		{"__pycache__/", true},
 		{"__pycache__/foo.cpython-312.pyc", true},
 		{"src/__pycache__/bar.pyc", true},
+		// Root-level infra files regenerated per-clone (gt-dlq)
+		{"CLAUDE.md", true},
+		{"state.json", true},
+		// .beads/redirect is covered by .beads/ prefix already
+		{".beads/redirect", true},
 		{"src/main.go", false},
 		{"README.md", false},
 		{".gitignore", false},

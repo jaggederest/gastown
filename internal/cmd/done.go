@@ -286,8 +286,14 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Printf("\n%s Uncommitted changes detected — auto-saving to prevent work loss\n", style.Bold.Render("⚠"))
 			fmt.Printf("  Files: %s\n\n", workStatus.String())
 
-			// Stage all changes (git add -A)
-			if addErr := g.Add("-A"); addErr != nil {
+			// Stage only non-infra files (gt-dlq: exclude .beads/redirect, .claude/,
+			// .runtime/, CLAUDE.md — these are toolchain artifacts that must never
+			// land on polecat branches, even in auto-save commits).
+			filesToAdd := workStatus.NonRuntimeFiles()
+			if len(filesToAdd) == 0 {
+				// Only runtime artifacts remain — nothing real to commit.
+				style.PrintWarning("auto-commit: all changes are runtime artifacts, skipping auto-save")
+			} else if addErr := g.Add(filesToAdd...); addErr != nil {
 				style.PrintWarning("auto-commit: git add failed: %v — uncommitted work may be at risk", addErr)
 			} else {
 				// Build a descriptive commit message

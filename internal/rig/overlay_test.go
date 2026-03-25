@@ -429,8 +429,8 @@ func TestEnsureGitignorePatterns_AllPatternsPresent(t *testing.T) {
 func TestEnsureGitignorePatterns_NarrowPatternPresent(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create .gitignore with the exact required patterns
-	existing := ".runtime/\n.claude/\n.logs/\n__pycache__/\nstate.json\nCLAUDE.md\n"
+	// Create .gitignore with the exact required patterns (including .beads/redirect, gt-dlq)
+	existing := ".runtime/\n.claude/\n.logs/\n__pycache__/\nstate.json\nCLAUDE.md\n.beads/redirect\n"
 	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(existing), 0644); err != nil {
 		t.Fatalf("Failed to create .gitignore: %v", err)
 	}

@@ -19,6 +19,7 @@ func gasTownIgnorePatterns() []string {
 		"__pycache__/",
 		"state.json",
 		"CLAUDE.md",
+		".beads/redirect", // routing file regenerated at spawn time, not project code
 	}
 }
 
