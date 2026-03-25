@@ -677,6 +677,27 @@ func isPolecatTarget(target string) bool {
 	return len(parts) >= 3 && parts[1] == "polecats"
 }
 
+// polecatRigFromTarget extracts the rig name if target refers to a polecat.
+// Handles both "rig/polecats/name" (explicit) and "rig/name" (2-part shorthand) formats.
+// Returns the rig name and true if the target is a polecat target, otherwise empty and false.
+// Known non-polecat roles (witness, refinery, crew) are excluded from shorthand matching.
+func polecatRigFromTarget(target string) (string, bool) {
+	parts := strings.Split(target, "/")
+	// 3-part explicit: "rig/polecats/name"
+	if len(parts) >= 3 && parts[1] == "polecats" {
+		return parts[0], true
+	}
+	// 2-part shorthand: "rig/name" where name is not a known non-polecat role
+	if len(parts) == 2 && parts[1] != "" {
+		switch strings.ToLower(parts[1]) {
+		case constants.RoleWitness, constants.RoleRefinery, constants.RoleCrew, "polecats":
+			return "", false
+		}
+		return parts[0], true
+	}
+	return "", false
+}
+
 // FormulaOnBeadResult contains the result of instantiating a formula on a bead.
 type FormulaOnBeadResult struct {
 	WispRootID string // The wisp root ID (compound root after bonding)
