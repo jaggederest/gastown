@@ -1454,6 +1454,39 @@ func TestNudgeLockDifferentSessions(t *testing.T) {
 	}
 }
 
+func TestEvictNudgeLock(t *testing.T) {
+	session := "test-evict-nudge-session"
+	sessionNudgeLocks.Delete(session) // ensure clean state
+
+	// Create an entry by acquiring the lock
+	if !acquireNudgeLock(session, time.Second) {
+		t.Fatal("initial acquire should succeed")
+	}
+	releaseNudgeLock(session)
+
+	// Verify the entry exists
+	_, loaded := sessionNudgeLocks.Load(session)
+	if !loaded {
+		t.Fatal("entry should exist after acquire")
+	}
+
+	// Evict it
+	evictNudgeLock(session)
+
+	// Verify the entry is gone
+	_, loaded = sessionNudgeLocks.Load(session)
+	if loaded {
+		t.Error("entry should be removed after evictNudgeLock")
+	}
+
+	// Acquiring after eviction should create a fresh entry
+	if !acquireNudgeLock(session, time.Second) {
+		t.Error("acquire should succeed after eviction")
+	}
+	releaseNudgeLock(session)
+	sessionNudgeLocks.Delete(session) // cleanup
+}
+
 func TestFindAgentPane_NonexistentSession(t *testing.T) {
 	tm := newTestTmux(t)
 	_, err := tm.FindAgentPane("nonexistent-session-findagent-xyz")
