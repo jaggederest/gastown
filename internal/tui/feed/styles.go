@@ -9,13 +9,13 @@ import (
 
 // Color palette using Ayu theme colors from ui package
 var (
-	colorPrimary   = ui.ColorAccent                                            // Blue
-	colorSuccess   = ui.ColorPass                                              // Green
-	colorWarning   = ui.ColorWarn                                              // Yellow
-	colorError     = ui.ColorFail                                              // Red
-	colorDim       = ui.ColorMuted                                             // Gray
-	colorHighlight = lipgloss.AdaptiveColor{Light: "#59c2ff", Dark: "#59c2ff"} // Cyan (Ayu)
-	colorAccent    = lipgloss.AdaptiveColor{Light: "#d2a6ff", Dark: "#d2a6ff"} // Purple (Ayu)
+	colorPrimary   = ui.ColorAccent                                              // Blue
+	colorSuccess   = ui.ColorPass                                                // Green
+	colorWarning   = ui.ColorWarn                                                // Yellow
+	colorError     = ui.ColorFail                                                // Red
+	colorDim       = ui.ColorMuted                                               // Gray
+	colorHighlight = lipgloss.AdaptiveColor{Light: "#399ee6", Dark: "#59c2ff"}  // Cyan/Blue (Ayu)
+	colorAccent    = lipgloss.AdaptiveColor{Light: "#7c5caa", Dark: "#d2a6ff"}  // Purple (Ayu)
 )
 
 // Styles for the feed TUI
@@ -28,7 +28,7 @@ var (
 
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("15"))
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"})
 
 	FilterStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
@@ -47,7 +47,7 @@ var (
 			Foreground(colorAccent)
 
 	AgentNameStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15"))
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"})
 
 	AgentActiveStyle = lipgloss.NewStyle().
 				Foreground(colorSuccess)
@@ -83,7 +83,7 @@ var (
 
 	// Status bar styles
 	StatusBarStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("236")).
+			Background(lipgloss.AdaptiveColor{Light: "#e0e0e0", Dark: "#303030"}).
 			Foreground(colorDim).
 			Padding(0, 1)
 
