@@ -1215,6 +1215,15 @@ notifyWitness:
 		}
 
 		fmt.Printf("%s Polecat transitioned to IDLE — ready for new work\n", style.Bold.Render("✓"))
+
+		// Update heartbeat to "idle" so session reuse works correctly (gt-6dm).
+		// The heartbeat was set to "exiting" at the start of gt done. With a fresh
+		// "exiting" heartbeat, isSessionStale returns false, causing SessionManager.Start
+		// to return ErrSessionRunning when trying to restart or reuse this polecat.
+		// Updating to "idle" lets isSessionStale identify the session as ready for reuse.
+		if sessionName := os.Getenv("GT_SESSION"); sessionName != "" && townRoot != "" {
+			polecat.TouchSessionHeartbeatWithState(townRoot, sessionName, polecat.HeartbeatIdle, "done", issueID)
+		}
 	}
 
 	fmt.Println()
