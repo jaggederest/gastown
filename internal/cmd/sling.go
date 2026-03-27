@@ -135,7 +135,8 @@ var (
 	slingRalph         bool   // --ralph: enable Ralph Wiggum loop mode for multi-step workflows
 	slingFormula       string // --formula: override formula for dispatch (default: mol-polecat-work)
 	slingCrew          string // --crew: target a crew member in the specified rig
-	slingReviewOnly    bool   // --review-only: mark work as review-only (no merge/commit/push)
+	slingReviewOnly   bool // --review-only: mark work as review-only (no merge/commit/push)
+	slingForceBlocked bool // --force-blocked: bypass unresolved dependency check
 )
 
 func init() {
@@ -164,6 +165,7 @@ func init() {
 	slingCmd.Flags().StringVar(&slingFormula, "formula", "", "Formula to apply (default: mol-polecat-work for polecat targets)")
 	slingCmd.Flags().StringVar(&slingCrew, "crew", "", "Target a crew member in the specified rig (e.g., --crew mel with target gastown → gastown/crew/mel)")
 	slingCmd.Flags().BoolVar(&slingReviewOnly, "review-only", false, "Mark work as review-only: assignee evaluates and reports back, must NOT merge/commit/push")
+	slingCmd.Flags().BoolVar(&slingForceBlocked, "force-blocked", false, "Dispatch even if bead has unresolved dependencies (for Mayor use)")
 
 	slingCmd.AddCommand(slingRespawnResetCmd)
 	rootCmd.AddCommand(slingCmd)
@@ -591,6 +593,15 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Use --force to override when intentionally re-activating deferred work.
 	if isDeferredBead(info) && !slingForce {
 		return fmt.Errorf("refusing to sling deferred bead %s: %q\nDeferred work should not consume polecat slots. Use --force to override", beadID, info.Title)
+	}
+
+	// Guard against dispatching beads with unresolved dependencies (gt-qc0).
+	// Polecats self-exit immediately when blockers exist, wasting a spawn cycle.
+	// Use --force-blocked to override when explicitly dispatching blocked work.
+	if !slingForceBlocked {
+		if err := checkBeadDependencies(info); err != nil {
+			return fmt.Errorf("cannot sling %s: %s\nUse --force-blocked to dispatch anyway", beadID, err)
+		}
 	}
 
 	originalStatus := info.Status
