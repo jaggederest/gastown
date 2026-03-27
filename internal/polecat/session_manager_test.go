@@ -1,6 +1,7 @@
 package polecat
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -452,6 +453,7 @@ func TestVerifyStartupNudgeDelivery_IdleAgent(t *testing.T) {
 	if err := tm.NewSession(sessionName, os.TempDir()); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
+	// Kill session last (after goroutine cleanup below, since t.Cleanup is LIFO).
 	t.Cleanup(func() { _ = tm.KillSession(sessionName) })
 
 	// Configure the shell to show the Claude prompt prefix, simulating an idle agent.
@@ -478,20 +480,32 @@ func TestVerifyStartupNudgeDelivery_IdleAgent(t *testing.T) {
 
 	// verifyStartupNudgeDelivery should detect idle state and retry.
 	// We can't easily assert the retry happened, but we verify it doesn't panic/hang.
-	// Use a goroutine with timeout to prevent test hanging.
-	// Timeout accounts for DefaultStartupNudgeVerifyDelay (25s) * DefaultStartupNudgeMaxRetries (2)
-	// plus overhead = ~60s. Use 90s for safety.
+	// Run in a goroutine with a cancellable context so cleanup can stop it promptly.
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		m.verifyStartupNudgeDelivery(sessionName, rc)
+		m.verifyStartupNudgeDelivery(ctx, sessionName, rc)
 		close(done)
 	}()
 
+	// Cleanup order (LIFO): cancel runs first, then wait-for-done, then KillSession (line 457).
+	// wait-for-done must be registered BEFORE cancel so that cancel executes first.
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("verifyStartupNudgeDelivery didn't exit within 3s of context cancellation")
+		}
+	})
+	t.Cleanup(cancel) // registered last → runs first (LIFO), cancels goroutine's sleep
+
+	// Wait briefly to let the first iteration run and detect idle state.
+	// After 2s, return so cleanup can cancel the goroutine.
 	select {
 	case <-done:
-		// Success - function completed
-	case <-time.After(90 * time.Second):
-		t.Fatal("verifyStartupNudgeDelivery hung (exceeded 90s timeout)")
+		// Function completed before timeout (all retries exhausted).
+	case <-time.After(2 * time.Second):
+		// Expected: goroutine sleeping between retries; cleanup will cancel it.
 	}
 }
 
@@ -504,7 +518,7 @@ func TestVerifyStartupNudgeDelivery_NilConfig(t *testing.T) {
 	m := NewSessionManager(tmux.NewTmux(), r)
 
 	// Should return immediately without error for nil config
-	m.verifyStartupNudgeDelivery("nonexistent-session", nil)
+	m.verifyStartupNudgeDelivery(context.Background(), "nonexistent-session", nil)
 
 	// And for config without prompt prefix
 	rc := &config.RuntimeConfig{
@@ -513,7 +527,7 @@ func TestVerifyStartupNudgeDelivery_NilConfig(t *testing.T) {
 			ReadyDelayMs:      1000,
 		},
 	}
-	m.verifyStartupNudgeDelivery("nonexistent-session", rc)
+	m.verifyStartupNudgeDelivery(context.Background(), "nonexistent-session", rc)
 }
 
 func TestValidateSessionName(t *testing.T) {

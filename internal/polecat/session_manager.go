@@ -459,7 +459,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// This fixes the Mode B race where the nudge arrives before Claude Code is ready,
 	// causing the polecat to sit idle at an empty prompt. See GH#1379.
 	if fallbackInfo.SendStartupNudge {
-		m.verifyStartupNudgeDelivery(sessionID, runtimeConfig)
+		m.verifyStartupNudgeDelivery(context.Background(), sessionID, runtimeConfig)
 	}
 
 	// Legacy fallback for other startup paths (non-fatal)
@@ -804,7 +804,7 @@ func (m *SessionManager) validateIssue(issueID, workDir string) error {
 //
 // Non-fatal: if verification fails or times out, the session is left running.
 // The witness zombie patrol will eventually detect and handle truly idle polecats.
-func (m *SessionManager) verifyStartupNudgeDelivery(sessionID string, rc *config.RuntimeConfig) {
+func (m *SessionManager) verifyStartupNudgeDelivery(ctx context.Context, sessionID string, rc *config.RuntimeConfig) {
 	// Only verify for agents with prompt detection. Without ReadyPromptPrefix,
 	// we can't distinguish "idle at prompt" from "busy processing".
 	if rc == nil || rc.Tmux == nil || rc.Tmux.ReadyPromptPrefix == "" {
@@ -824,7 +824,12 @@ func (m *SessionManager) verifyStartupNudgeDelivery(sessionID string, rc *config
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// Wait for the agent to process the nudge before checking.
-		time.Sleep(verifyDelay)
+		// Context-aware sleep: exits immediately if ctx is cancelled (e.g. test cleanup).
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(verifyDelay):
+		}
 
 		// Check if session is still alive
 		running, err := m.tmux.HasSession(sessionID)
