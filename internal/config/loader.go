@@ -1348,6 +1348,59 @@ func ResolveRoleAgentConfig(role, townRoot, rigPath string) *RuntimeConfig {
 	return withRoleSettingsFlag(rc, role, rigPath)
 }
 
+// ResolveRoleAgentConfigForHooks is like ResolveRoleAgentConfig but does not
+// require the agent binary to be present in PATH. Used by hooks sync to install
+// hook files for configured agents even before the agent binary is installed.
+func ResolveRoleAgentConfigForHooks(role, townRoot, rigPath string) *RuntimeConfig {
+	resolveConfigMu.Lock()
+	defer resolveConfigMu.Unlock()
+
+	var rigSettings *RigSettings
+	if rigPath != "" {
+		rigSettings, _ = LoadRigSettings(RigSettingsPath(rigPath))
+	}
+	townSettings, err := LoadOrCreateTownSettings(TownSettingsPath(townRoot))
+	if err != nil {
+		townSettings = NewTownSettings()
+	}
+	_ = LoadAgentRegistry(DefaultAgentRegistryPath(townRoot))
+	if rigPath != "" {
+		_ = LoadRigAgentRegistry(RigAgentRegistryPath(rigPath))
+	}
+
+	// Check rig's RoleAgents first
+	if rigSettings != nil && rigSettings.RoleAgents != nil {
+		if agentName, ok := rigSettings.RoleAgents[role]; ok && agentName != "" {
+			if rc := lookupCustomAgentConfig(agentName, townSettings, rigSettings); rc != nil {
+				rc.ResolvedAgent = agentName
+				return withRoleSettingsFlag(rc, role, rigPath)
+			}
+			if rc := lookupAgentConfigIfExists(agentName, townSettings, rigSettings); rc != nil {
+				rc.ResolvedAgent = agentName
+				return withRoleSettingsFlag(rc, role, rigPath)
+			}
+		}
+	}
+
+	// Check town's RoleAgents
+	if townSettings.RoleAgents != nil {
+		if agentName, ok := townSettings.RoleAgents[role]; ok && agentName != "" {
+			if rc := lookupCustomAgentConfig(agentName, townSettings, rigSettings); rc != nil {
+				rc.ResolvedAgent = agentName
+				return withRoleSettingsFlag(rc, role, rigPath)
+			}
+			if rc := lookupAgentConfigIfExists(agentName, townSettings, rigSettings); rc != nil {
+				rc.ResolvedAgent = agentName
+				return withRoleSettingsFlag(rc, role, rigPath)
+			}
+		}
+	}
+
+	// Fall back to default resolution
+	rc := resolveAgentConfigInternal(townRoot, rigPath)
+	return withRoleSettingsFlag(rc, role, rigPath)
+}
+
 // tryResolveNamedAgent attempts to resolve a named agent through the custom agent
 // and standard lookup pipelines. Returns the resolved config with ResolvedAgent set,
 // or nil if validation fails. The warnPrefix is used in the fallback warning message
