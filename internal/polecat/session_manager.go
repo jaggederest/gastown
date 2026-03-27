@@ -513,8 +513,25 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 // A stale session exists in tmux but its main process (the agent) is no longer running.
 // This happens when the agent crashes during startup but tmux keeps the dead pane.
 // Delegates to isSessionProcessDead to avoid duplicating process-check logic (gt-qgzj1h).
+//
+// gt-6dm: Also treats a fresh "idle" heartbeat as stale. After gt done completes,
+// the heartbeat is updated to state="idle" to signal the session is ready for reuse.
+// Without this check, the fresh heartbeat (not time-stale) would cause isSessionStale
+// to return false, and SessionManager.Start would return ErrSessionRunning when trying
+// to restart the polecat for a new assignment.
 func (m *SessionManager) isSessionStale(sessionID string) bool {
-	return isSessionProcessDead(m.tmux, sessionID, filepath.Dir(m.rig.Path))
+	townRoot := filepath.Dir(m.rig.Path)
+	// A fresh "idle" heartbeat means gt done completed and the polecat is waiting
+	// for new work. The tmux session is alive but the agent process has exited.
+	// Treat as stale so Start can kill and recreate the session for reuse.
+	if hb := ReadSessionHeartbeat(townRoot, sessionID); hb != nil && hb.IsV2() {
+		if time.Since(hb.Timestamp) < SessionHeartbeatStaleThreshold {
+			if hb.EffectiveState() == HeartbeatIdle {
+				return true
+			}
+		}
+	}
+	return isSessionProcessDead(m.tmux, sessionID, townRoot)
 }
 
 // Stop terminates a polecat session.
