@@ -73,6 +73,14 @@ type TownSettings struct {
 	// Example: {"bob": "codex", "alice": "claude"}
 	CrewAgents map[string]string `json:"crew_agents,omitempty"`
 
+	// ComplexityAgents maps complexity tiers (0-4) to agent names for automatic agent selection.
+	// Keys are complexity levels as strings: "0", "1", "2", "3", "4".
+	// Values are agent names (built-in presets or custom agents defined in Agents).
+	// When a bead has a complexity field set, gt sling uses this map to pick the agent automatically.
+	// Explicit --agent flag always takes precedence over complexity-driven selection.
+	// Example: {"1": "claude-haiku", "2": "gemini", "3": "claude-sonnet", "4": "claude-opus"}
+	ComplexityAgents map[string]string `json:"complexity_agents,omitempty"`
+
 	// AgentEmailDomain is the domain used for agent git identity emails.
 	// Agent addresses like "gastown/crew/jack" become "gastown.crew.jack@{domain}".
 	// Default: "gastown.local"
@@ -669,6 +677,12 @@ type RigSettings struct {
 	// Takes precedence over RoleAgents["crew"] but is overridden by explicit --agent flags.
 	// Example: {"denali": "codex", "glacier": "gemini"}
 	WorkerAgents map[string]string `json:"worker_agents,omitempty"`
+
+	// MaxComplexity caps the complexity-driven agent tier for this rig.
+	// When a bead's complexity exceeds this value, the complexity is clamped to MaxComplexity
+	// for agent selection purposes. This lets rig operators limit compute cost.
+	// 0 means uncapped (use bead's complexity level as-is).
+	MaxComplexity int `json:"max_complexity,omitempty"`
 }
 
 // CrewConfig represents crew workspace settings for a rig.

@@ -1344,6 +1344,71 @@ func TestResolveAgentConfigWithOverride(t *testing.T) {
 	})
 }
 
+func TestResolveAgentForComplexity(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+
+	// Town settings with complexity agent map.
+	townSettings := NewTownSettings()
+	townSettings.ComplexityAgents = map[string]string{
+		"1": "claude-haiku",
+		"3": "claude-sonnet",
+		"4": "claude-opus",
+	}
+	if err := SaveTownSettings(TownSettingsPath(townRoot), townSettings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+
+	t.Run("returns agent for configured complexity", func(t *testing.T) {
+		got := ResolveAgentForComplexity(townRoot, rigPath, 3)
+		if got != "claude-sonnet" {
+			t.Fatalf("got %q, want %q", got, "claude-sonnet")
+		}
+	})
+
+	t.Run("returns empty for unconfigured complexity", func(t *testing.T) {
+		got := ResolveAgentForComplexity(townRoot, rigPath, 2)
+		if got != "" {
+			t.Fatalf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns empty for zero complexity", func(t *testing.T) {
+		got := ResolveAgentForComplexity(townRoot, rigPath, 0)
+		if got != "" {
+			t.Fatalf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("respects rig MaxComplexity cap", func(t *testing.T) {
+		rigSettings := NewRigSettings()
+		rigSettings.MaxComplexity = 3
+		if err := SaveRigSettings(RigSettingsPath(rigPath), rigSettings); err != nil {
+			t.Fatalf("SaveRigSettings: %v", err)
+		}
+		defer os.Remove(RigSettingsPath(rigPath)) //nolint:errcheck
+
+		// complexity=4 should be capped to 3
+		got := ResolveAgentForComplexity(townRoot, rigPath, 4)
+		if got != "claude-sonnet" {
+			t.Fatalf("got %q, want %q (capped from 4 to 3)", got, "claude-sonnet")
+		}
+	})
+
+	t.Run("returns empty when no complexity_agents configured", func(t *testing.T) {
+		emptyTownRoot := t.TempDir()
+		ts := NewTownSettings()
+		if err := SaveTownSettings(TownSettingsPath(emptyTownRoot), ts); err != nil {
+			t.Fatalf("SaveTownSettings: %v", err)
+		}
+		got := ResolveAgentForComplexity(emptyTownRoot, "", 3)
+		if got != "" {
+			t.Fatalf("got %q, want empty string", got)
+		}
+	})
+}
+
 func TestBuildPolecatStartupCommandWithAgentOverride(t *testing.T) {
 	t.Parallel()
 	townRoot := t.TempDir()
