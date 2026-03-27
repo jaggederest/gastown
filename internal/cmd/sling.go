@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/mail"
@@ -663,12 +664,32 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	if len(args) > 1 {
 		target = args[1]
 	}
+	// Auto-select agent from bead complexity if no explicit --agent flag (gt-ywj).
+	// Determine rig name from target (rig name or polecat agent path) for MaxComplexity cap.
+	effectiveAgent := slingAgent
+	if effectiveAgent == "" && info.Complexity > 0 {
+		rigName := target
+		if _, isRig := IsRigName(target); !isRig {
+			if r, ok := polecatRigFromTarget(target); ok {
+				rigName = r
+			} else {
+				rigName = ""
+			}
+		}
+		rigPath := ""
+		if rigName != "" {
+			rigPath = filepath.Join(townRoot, rigName)
+		}
+		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, info.Complexity); resolved != "" {
+			effectiveAgent = resolved
+		}
+	}
 	resolved, err := resolveTarget(target, ResolveTargetOptions{
 		DryRun:     slingDryRun,
 		Force:      force,
 		Create:     slingCreate,
 		Account:    slingAccount,
-		Agent:      slingAgent,
+		Agent:      effectiveAgent,
 		NoBoot:     slingNoBoot,
 		HookBead:   beadID,
 		BeadID:     beadID,

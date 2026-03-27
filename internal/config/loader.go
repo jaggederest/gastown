@@ -1156,6 +1156,30 @@ func resolveAgentConfigInternal(townRoot, rigPath string) *RuntimeConfig {
 	return rc
 }
 
+// ResolveAgentForComplexity returns the agent name to use for the given complexity tier.
+// It applies the rig's MaxComplexity cap (if set) and looks up the agent in the town's
+// ComplexityAgents map. Returns empty string if no agent is configured for the tier.
+// The explicit --agent flag always takes precedence; callers should only invoke this
+// function when no explicit agent override is present.
+func ResolveAgentForComplexity(townRoot, rigPath string, complexity int) string {
+	// Apply rig-level complexity cap.
+	if rigPath != "" {
+		rigSettings, err := LoadRigSettings(RigSettingsPath(rigPath))
+		if err == nil && rigSettings != nil && rigSettings.MaxComplexity > 0 && complexity > rigSettings.MaxComplexity {
+			complexity = rigSettings.MaxComplexity
+		}
+	}
+
+	// Look up agent for the (possibly capped) complexity tier.
+	townSettings, err := LoadOrCreateTownSettings(TownSettingsPath(townRoot))
+	if err != nil || townSettings == nil || len(townSettings.ComplexityAgents) == 0 {
+		return ""
+	}
+
+	key := fmt.Sprintf("%d", complexity)
+	return townSettings.ComplexityAgents[key]
+}
+
 // ResolveAgentConfigWithOverride resolves the agent configuration for a rig, with an optional override.
 // If agentOverride is non-empty, it is used instead of rig/town defaults.
 // Returns the resolved RuntimeConfig, the selected agent name, and an error if the override name

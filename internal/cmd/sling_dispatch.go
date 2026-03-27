@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/style"
@@ -221,11 +222,19 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	}
 
 	// 3. Spawn polecat (via spawnPolecatForSling)
+	// Auto-select agent from bead complexity if no explicit --agent override (gt-ywj).
+	agentForSling := params.Agent
+	if agentForSling == "" && info.Complexity > 0 {
+		rigPath := filepath.Join(townRoot, params.RigName)
+		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, info.Complexity); resolved != "" {
+			agentForSling = resolved
+		}
+	}
 	spawnOpts := SlingSpawnOptions{
 		Force:      params.Force,
 		Account:    params.Account,
 		HookBead:   params.BeadID,
-		Agent:      params.Agent,
+		Agent:      agentForSling,
 		BaseBranch: params.BaseBranch,
 		// Create is always true for rig targets: executeSling only handles
 		// rig-targeted dispatch (batch sling + queue dispatch), where a fresh

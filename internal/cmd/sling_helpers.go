@@ -80,6 +80,7 @@ type beadInfo struct {
 	Labels       []string         `json:"labels,omitempty"`
 	Dependencies []beads.IssueDep `json:"dependencies,omitempty"`
 	IssueType    string           `json:"issue_type,omitempty"`
+	Complexity   int              `json:"complexity,omitempty"` // Complexity tier 0-4 for agent auto-selection
 }
 
 // isDeferredBead checks whether a bead should be rejected from slinging because

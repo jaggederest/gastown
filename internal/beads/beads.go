@@ -173,6 +173,7 @@ type Issue struct {
 	BlockedBy   []string `json:"blocked_by,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
 	Ephemeral   bool     `json:"ephemeral,omitempty"` // Wisp/ephemeral issues, not synced to git
+	Complexity  int      `json:"complexity,omitempty"` // Complexity tier 0-4 for agent auto-selection
 
 	// Content fields (parsed from bd show --json)
 	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
@@ -283,6 +284,7 @@ type CreateOptions struct {
 	Parent      string
 	Actor       string // Who is creating this issue (populates created_by)
 	Ephemeral   bool   // Create as ephemeral (wisp) - not synced to git
+	Complexity  int    // Complexity tier 0-4 for agent auto-selection (0 = unset)
 }
 
 // UpdateOptions specifies options for updating an issue.
@@ -1110,6 +1112,9 @@ func (b *Beads) Create(opts CreateOptions) (*Issue, error) {
 	if opts.Ephemeral {
 		args = append(args, "--ephemeral")
 	}
+	if opts.Complexity > 0 {
+		args = append(args, fmt.Sprintf("--complexity=%d", opts.Complexity))
+	}
 	// Default Actor from BD_ACTOR env var if not specified
 	// Uses getActor() to respect isolated mode (tests)
 	actor := opts.Actor
@@ -1166,6 +1171,9 @@ func (b *Beads) CreateWithID(id string, opts CreateOptions) (*Issue, error) {
 	}
 	if opts.Parent != "" {
 		args = append(args, "--parent="+opts.Parent)
+	}
+	if opts.Complexity > 0 {
+		args = append(args, fmt.Sprintf("--complexity=%d", opts.Complexity))
 	}
 	// Default Actor from BD_ACTOR env var if not specified
 	// Uses getActor() to respect isolated mode (tests)
