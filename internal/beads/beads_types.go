@@ -224,12 +224,15 @@ func EnsureCustomStatuses(beadsDir string) error {
 	getCmd.Env = getEnv
 	existingOutput, _ := getCmd.Output()
 
-	// Build merged set: existing + required
+	// Build merged set: existing + required.
+	// Skip tokens that don't match the valid status name pattern — this handles
+	// the case where bd returns a placeholder like "status.custom (not set)"
+	// when the key is absent (gt-jfo).
 	statusSet := make(map[string]bool)
 	if existing := strings.TrimSpace(string(existingOutput)); existing != "" {
 		for _, s := range strings.Split(existing, ",") {
 			s = strings.TrimSpace(s)
-			if s != "" {
+			if s != "" && validStatusNameRe.MatchString(s) {
 				statusSet[s] = true
 			}
 		}
@@ -271,6 +274,19 @@ func EnsureCustomStatuses(beadsDir string) error {
 // NOTE: This MUST stay in sync with beadsPrefixRegexp in internal/rig/manager.go.
 // Both exist because rig/manager.go cannot import internal/beads (circular dep).
 var prefixRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-]{0,19}$`)
+
+// validStatusNameRe matches valid beads custom status names: must start with
+// a lowercase letter and contain only lowercase letters, digits, underscores,
+// and hyphens. This matches the validation pattern enforced by the bd CLI.
+var validStatusNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+// ValidStatusName reports whether s is a valid beads custom status name.
+// Valid names match [a-z][a-z0-9_-]* (the pattern enforced by the bd CLI).
+// Use this to filter placeholder strings like "status.custom (not set)" that
+// bd may return when the key is absent.
+func ValidStatusName(s string) bool {
+	return validStatusNameRe.MatchString(s)
+}
 
 // ensureDatabaseInitialized checks if a beads database exists and initializes it if needed.
 // This handles the case where a rig was added but the database was never created,

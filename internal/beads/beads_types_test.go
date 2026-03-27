@@ -550,6 +550,98 @@ func TestEnsureCustomStatuses(t *testing.T) {
 			t.Error("statuses cache key should not collide with types cache key")
 		}
 	})
+
+	t.Run("filters placeholder string from bd config get output (gt-jfo)", func(t *testing.T) {
+		// When status.custom is absent, bd config get may return "status.custom (not set)"
+		// instead of empty string. EnsureCustomStatuses must not pass this to bd config set.
+		tmpDir := t.TempDir()
+		beadsDir := filepath.Join(tmpDir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Build a mock bd that returns the placeholder from "config get status.custom"
+		// and records what was passed to "config set status.custom".
+		binDir := t.TempDir()
+		setArgFile := filepath.Join(tmpDir, "set_arg.txt")
+		script := `#!/bin/sh
+case "$1" in
+  init)
+    target="${BEADS_DIR:-$(pwd)/.beads}"
+    mkdir -p "$target/dolt"
+    printf 'prefix: gt\nissue-prefix: gt-\n' > "$target/config.yaml"
+    exit 0
+    ;;
+  config)
+    if echo "$*" | grep -q "get status.custom"; then
+      echo "status.custom (not set)"
+      exit 0
+    fi
+    if echo "$*" | grep -q "set status.custom"; then
+      # Record the value passed to config set
+      echo "$4" > ` + setArgFile + `
+      exit 0
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+		bdPath := filepath.Join(binDir, "bd")
+		if err := os.WriteFile(bdPath, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		ResetEnsuredDirs()
+
+		err := EnsureCustomStatuses(beadsDir)
+		if err != nil {
+			t.Fatalf("EnsureCustomStatuses: %v", err)
+		}
+
+		// Verify the placeholder was NOT passed to bd config set
+		setArg, err := os.ReadFile(setArgFile)
+		if err != nil {
+			t.Fatalf("reading set arg file: %v", err)
+		}
+		if strings.Contains(string(setArg), "not set") {
+			t.Errorf("bd config set received placeholder: %q", string(setArg))
+		}
+		// All tokens in the set arg should be valid status names
+		for _, token := range strings.Split(strings.TrimSpace(string(setArg)), ",") {
+			token = strings.TrimSpace(token)
+			if token != "" && !ValidStatusName(token) {
+				t.Errorf("invalid status name passed to bd config set: %q", token)
+			}
+		}
+	})
+}
+
+func TestValidStatusName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"staged_ready", true},
+		{"staged-warnings", true},
+		{"pinned", true},
+		{"a", true},
+		{"abc123", true},
+		{"status.custom (not set)", false},
+		{"status.custom", false}, // contains dot
+		{"(not set)", false},
+		{"", false},
+		{"A", false}, // uppercase
+		{"123abc", false}, // starts with digit
+	}
+	for _, tt := range tests {
+		got := ValidStatusName(tt.input)
+		if got != tt.want {
+			t.Errorf("ValidStatusName(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
 }
 
 func TestEnsureDatabaseInitialized(t *testing.T) {
