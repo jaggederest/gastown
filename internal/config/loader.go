@@ -1701,13 +1701,14 @@ func resolveRoleAgentConfigCore(role, townRoot, rigPath string) *RuntimeConfig {
 				rc.ResolvedAgent = agentName
 				return rc
 			}
-			if err := ValidateAgentConfig(agentName, townSettings, rigSettings); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - %v, falling back to default\n", role, agentName, err)
-			} else {
-				rc := lookupAgentConfig(agentName, townSettings, rigSettings)
+			if rc := lookupAgentConfigIfExists(agentName, townSettings, rigSettings); rc != nil {
+				if _, err := exec.LookPath(rc.Command); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - binary %q not found in PATH\n", role, agentName, rc.Command)
+				}
 				rc.ResolvedAgent = agentName
 				return rc
 			}
+			fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - agent not found in config or built-in presets, falling back to default\n", role, agentName)
 		}
 	}
 
@@ -1718,13 +1719,14 @@ func resolveRoleAgentConfigCore(role, townRoot, rigPath string) *RuntimeConfig {
 				rc.ResolvedAgent = agentName
 				return rc
 			}
-			if err := ValidateAgentConfig(agentName, townSettings, rigSettings); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - %v, falling back to default\n", role, agentName, err)
-			} else {
-				rc := lookupAgentConfig(agentName, townSettings, rigSettings)
+			if rc := lookupAgentConfigIfExists(agentName, townSettings, rigSettings); rc != nil {
+				if _, err := exec.LookPath(rc.Command); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - binary %q not found in PATH\n", role, agentName, rc.Command)
+				}
 				rc.ResolvedAgent = agentName
 				return rc
 			}
+			fmt.Fprintf(os.Stderr, "warning: role_agents[%s]=%s - agent not found in config or built-in presets, falling back to default\n", role, agentName)
 		}
 	}
 
