@@ -33,8 +33,9 @@ type SlingParams struct {
 	NoConvoy   bool     // --no-convoy
 	Owned      bool     // --owned
 	NoMerge    bool     // --no-merge
-	Force      bool     // --force
-	HookRawBead bool    // --hook-raw-bead
+	Force        bool // --force
+	ForceBlocked bool // --force-blocked: bypass unresolved dependency check
+	HookRawBead  bool // --hook-raw-bead
 	NoBoot     bool     // --no-boot
 	Mode       string   // --ralph: "" (normal) or "ralph"
 	ReviewOnly bool     // --review-only: review and report back only, no merge/commit/push
@@ -163,6 +164,16 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	if isDeferredBead(info) && !explicitForce {
 		result.ErrMsg = "deferred"
 		return result, fmt.Errorf("bead %s is deferred (use --force to override)", params.BeadID)
+	}
+
+	// Guard against dispatching beads with unresolved dependencies (gt-qc0).
+	// Polecats self-exit immediately when blockers exist, wasting a spawn cycle.
+	// Use --force-blocked to override when Mayor explicitly wants to dispatch anyway.
+	if !params.ForceBlocked {
+		if err := checkBeadDependencies(info); err != nil {
+			result.ErrMsg = "blocked"
+			return result, fmt.Errorf("cannot sling %s: %s\nUse --force-blocked to dispatch anyway", params.BeadID, err)
+		}
 	}
 
 	// Send LIFECYCLE:Shutdown to the witness when force-stealing a bead from a

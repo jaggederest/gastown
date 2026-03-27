@@ -94,6 +94,22 @@ type beadInfo struct {
 	Complexity   int              `json:"complexity,omitempty"` // Complexity tier 0-4 for agent auto-selection
 }
 
+// checkBeadDependencies checks whether any direct dependencies of a bead are
+// unresolved (not closed). Returns an error naming the first unresolved dep.
+// Molecule wisps (IDs containing "-wisp-") are excluded — they are internal
+// scaffolding, not user-visible blockers.
+func checkBeadDependencies(info *beadInfo) error {
+	for _, dep := range info.Dependencies {
+		if strings.Contains(dep.ID, "-wisp-") {
+			continue // molecule scaffolding, not a real blocker
+		}
+		if dep.Status != "closed" && dep.Status != "tombstone" {
+			return fmt.Errorf("depends on %s (%s)", dep.ID, dep.Status)
+		}
+	}
+	return nil
+}
+
 // isDeferredBead checks whether a bead should be rejected from slinging because
 // it has been deferred. Returns true if the bead has status "deferred" or if its
 // description contains deferral keywords like "deferred to post-launch".
