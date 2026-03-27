@@ -43,15 +43,15 @@ func TestResolveSessionTheme_NamedRigTheme(t *testing.T) {
 
 	townRoot := t.TempDir()
 	settings := config.NewRigSettings()
-	settings.Theme = &config.ThemeConfig{Name: "forest"}
+	settings.Theme = &config.ThemeConfig{Name: "sage"}
 	rigPath := filepath.Join(townRoot, "gastown")
 	if err := config.SaveRigSettings(config.RigSettingsPath(rigPath), settings); err != nil {
 		t.Fatalf("SaveRigSettings: %v", err)
 	}
 
 	got := ResolveSessionTheme(townRoot, "gastown", "crew")
-	if got == nil || got.Name != "forest" {
-		t.Fatalf("ResolveSessionTheme = %+v, want forest", got)
+	if got == nil || got.Name != "sage" {
+		t.Fatalf("ResolveSessionTheme = %+v, want sage", got)
 	}
 }
 
@@ -105,8 +105,8 @@ func TestResolveSessionTheme_MayorAndDeaconTownOverrides(t *testing.T) {
 	mayorCfg := config.NewMayorConfig()
 	mayorCfg.Theme = &config.TownThemeConfig{
 		RoleDefaults: map[string]string{
-			"mayor":  "forest",
-			"deacon": "plum",
+			"mayor":  "sage",
+			"deacon": "lavender",
 		},
 	}
 	if err := config.SaveMayorConfig(filepath.Join(townRoot, "mayor", "config.json"), mayorCfg); err != nil {
@@ -114,12 +114,12 @@ func TestResolveSessionTheme_MayorAndDeaconTownOverrides(t *testing.T) {
 	}
 
 	mayorTheme := ResolveSessionTheme(townRoot, "", "mayor")
-	if mayorTheme == nil || mayorTheme.Name != "forest" {
-		t.Fatalf("mayor theme = %+v, want forest", mayorTheme)
+	if mayorTheme == nil || mayorTheme.Name != "sage" {
+		t.Fatalf("mayor theme = %+v, want sage", mayorTheme)
 	}
 
 	deaconTheme := ResolveSessionTheme(townRoot, "", "deacon")
-	if deaconTheme == nil || deaconTheme.Name != "plum" {
-		t.Fatalf("deacon theme = %+v, want plum", deaconTheme)
+	if deaconTheme == nil || deaconTheme.Name != "lavender" {
+		t.Fatalf("deacon theme = %+v, want lavender", deaconTheme)
 	}
 }
