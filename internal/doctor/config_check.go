@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/constants"
 )
 
@@ -829,12 +830,13 @@ func (c *CustomStatusesCheck) Fix(ctx *CheckContext) error {
 	getCmd.Dir = c.townRoot
 	existingOutput, _ := getCmd.Output()
 
-	// Build merged set
+	// Build merged set, skipping invalid tokens such as the "status.custom (not set)"
+	// placeholder that bd emits when the key is absent (gt-jfo).
 	statusSet := make(map[string]bool)
 	if existing := strings.TrimSpace(string(existingOutput)); existing != "" {
 		for _, s := range strings.Split(parseConfigOutput(existingOutput), ",") {
 			s = strings.TrimSpace(s)
-			if s != "" {
+			if s != "" && beads.ValidStatusName(s) {
 				statusSet[s] = true
 			}
 		}
