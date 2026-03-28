@@ -235,9 +235,9 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	// 3. Spawn polecat (via spawnPolecatForSling)
 	// Auto-select agent from bead complexity if no explicit --agent override (gt-ywj).
 	agentForSling := params.Agent
-	if agentForSling == "" && info.Complexity > 0 {
+	if complexity := info.effectiveComplexity(); agentForSling == "" && complexity > 0 {
 		rigPath := filepath.Join(townRoot, params.RigName)
-		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, info.Complexity); resolved != "" {
+		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, complexity); resolved != "" {
 			agentForSling = resolved
 		}
 	}

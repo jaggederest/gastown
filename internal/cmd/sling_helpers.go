@@ -72,6 +72,10 @@ func resolveBeadDirFromRigsJSON(townRoot, prefix string) string {
 }
 
 // beadInfo holds status and assignee for a bead.
+type beadInfoMetadata struct {
+	Complexity int `json:"complexity,omitempty"`
+}
+
 type beadInfo struct {
 	Title        string           `json:"title"`
 	Status       string           `json:"status"`
@@ -81,6 +85,16 @@ type beadInfo struct {
 	Dependencies []beads.IssueDep `json:"dependencies,omitempty"`
 	IssueType    string           `json:"issue_type,omitempty"`
 	Complexity   int              `json:"complexity,omitempty"` // Complexity tier 0-4 for agent auto-selection
+	Metadata     beadInfoMetadata `json:"metadata,omitempty"`  // bd show --json nests complexity here
+}
+
+// effectiveComplexity returns the bead's complexity tier, checking both the
+// top-level field (future) and the metadata sub-object (current bd show --json).
+func (b *beadInfo) effectiveComplexity() int {
+	if b.Complexity > 0 {
+		return b.Complexity
+	}
+	return b.Metadata.Complexity
 }
 
 // checkBeadDependencies checks whether any direct dependencies of a bead are
