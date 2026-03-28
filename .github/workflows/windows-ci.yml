@@ -69,7 +69,7 @@ jobs:
 
       - name: Unit Tests
         shell: msys2 {0}
-        run: gotestsum --format testname --junitfile junit.xml -- -short ./...
+        run: gotestsum --format testname --junitfile junit.xml -- -race -short ./...
 
       - name: Test Report
         if: always()
