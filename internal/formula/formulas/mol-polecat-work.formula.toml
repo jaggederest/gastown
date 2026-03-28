@@ -66,15 +66,15 @@ gt prime                    # Load role context
 bd prime                    # Load beads context
 ```
 
-**2. Check your hook:**
+**2. Preflight check (validate connectivity):**
 ```bash
 gt hook               # Shows your pinned molecule and hook_bead
+bd show {{issue}}           # Validates Dolt connectivity + reads your assignment
 ```
+If `bd show` hangs or fails: run `gt dolt status` to check Dolt health.
+If Dolt is down: `gt escalate -s HIGH "Dolt: <symptom>"` — do NOT restart it yourself.
 
-The hook_bead is your assigned issue. Read it carefully:
-```bash
-bd show {{issue}}           # Full issue details
-```
+The hook_bead is your assigned issue. Read the output of `bd show` carefully.
 
 **3. Check inbox for additional context:**
 ```bash
