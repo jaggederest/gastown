@@ -1903,6 +1903,142 @@ func TestReuseIdlePolecat_NoSessionNoop(t *testing.T) {
 	}
 }
 
+// installMockBdWithAgentState installs a mock bd binary that returns an agent bead
+// with the specified agent_state for any "show" command, and an empty list for any
+// "list" command. Used to test agent-state-aware polecat selection (gt-3f3).
+func installMockBdWithAgentState(t *testing.T, agentState string) {
+	t.Helper()
+	binDir := t.TempDir()
+
+	if runtime.GOOS == "windows" {
+		psPath := filepath.Join(binDir, "bd.ps1")
+		psScript := `# Mock bd for polecat tests (PowerShell)
+$cmd = ''
+foreach ($arg in $args) {
+  if ($arg -like '--*') { continue }
+  $cmd = $arg
+  break
+}
+switch ($cmd) {
+  'init'   { exit 0 }
+  'config' { exit 0 }
+  'list' {
+    Write-Output '[]'
+    exit 0
+  }
+  'show' {
+    Write-Output ('[{"id":"agent-bead","issue_type":"agent","status":"open","agent_state":"` + agentState + `","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}]')
+    exit 0
+  }
+  'create' {
+    Write-Output '{"id":"mock-1","status":"open","created_at":"2025-01-01T00:00:00Z"}'
+    exit 0
+  }
+  default { exit 0 }
+}
+`
+		cmdScript := "@echo off\r\npwsh -NoProfile -NoLogo -File \"" + psPath + "\" %*\r\n"
+		if err := os.WriteFile(psPath, []byte(psScript), 0644); err != nil {
+			t.Fatalf("write mock bd.ps1: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(binDir, "bd.cmd"), []byte(cmdScript), 0644); err != nil {
+			t.Fatalf("write mock bd.cmd: %v", err)
+		}
+	} else {
+		script := `#!/bin/sh
+# Mock bd for polecat tests (agent-state variant, gt-3f3).
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) ;; # skip flags
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  init|config|update|slot|reopen|migrate)
+    exit 0
+    ;;
+  list)
+    echo '[]'
+    exit 0
+    ;;
+  show)
+    echo '[{"id":"agent-bead","issue_type":"agent","status":"open","agent_state":"` + agentState + `","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}]'
+    exit 0
+    ;;
+  create)
+    echo '{"id":"mock-1","status":"open","created_at":"2025-01-01T00:00:00Z"}'
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+		if err := os.WriteFile(filepath.Join(binDir, "bd"), []byte(script), 0755); err != nil {
+			t.Fatalf("write mock bd: %v", err)
+		}
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestFindIdlePolecat_SkipsSpawningPolecat is the gt-3f3 regression test.
+// A polecat with agent_state=spawning must NOT be returned as idle by FindIdlePolecat:
+// ReuseIdlePolecat sets agent_state=spawning before the work bead is hooked, so without
+// this fix a second concurrent sling can observe the same polecat as idle and clobber it.
+func TestFindIdlePolecat_SkipsSpawningPolecat(t *testing.T) {
+	installMockBdWithAgentState(t, "spawning")
+
+	townRoot := t.TempDir()
+	rigName := "testspawning"
+	rigPath := filepath.Join(townRoot, rigName)
+	polecatName := "toast"
+
+	polecatDir := filepath.Join(rigPath, "polecats", polecatName)
+	if err := os.MkdirAll(polecatDir, 0755); err != nil {
+		t.Fatalf("mkdir polecat dir: %v", err)
+	}
+
+	r := &rig.Rig{Name: rigName, Path: rigPath}
+	mgr := NewManager(r, git.NewGit(rigPath), nil)
+
+	idle, err := mgr.FindIdlePolecat()
+	if err != nil {
+		t.Fatalf("FindIdlePolecat: %v", err)
+	}
+	if idle != nil {
+		t.Errorf("FindIdlePolecat returned %q for spawning polecat — "+
+			"this is the gt-3f3 race: a spawning polecat must not appear idle "+
+			"to concurrent slings", idle.Name)
+	}
+}
+
+// TestReuseIdlePolecat_RefusesActivePolecat verifies that ReuseIdlePolecat returns
+// ErrPolecatNotIdle when the polecat's agent_state is active (spawning/working/running).
+// This is defense-in-depth for gt-3f3: even if the outer idle selection lock fails,
+// the per-polecat lock prevents clobbering a concurrently-claimed polecat.
+func TestReuseIdlePolecat_RefusesActivePolecat(t *testing.T) {
+	installMockBdWithAgentState(t, "spawning")
+
+	townRoot := t.TempDir()
+	rigName := "testrefuse"
+	rigPath := filepath.Join(townRoot, rigName)
+	polecatName := "jam"
+
+	polecatDir := filepath.Join(rigPath, "polecats", polecatName)
+	if err := os.MkdirAll(polecatDir, 0755); err != nil {
+		t.Fatalf("mkdir polecat dir: %v", err)
+	}
+
+	r := &rig.Rig{Name: rigName, Path: rigPath}
+	mgr := NewManager(r, git.NewGit(rigPath), nil)
+
+	_, err := mgr.ReuseIdlePolecat(polecatName, AddOptions{})
+	if !errors.Is(err, ErrPolecatNotIdle) {
+		t.Errorf("ReuseIdlePolecat for spawning polecat: want ErrPolecatNotIdle, got %v", err)
+	}
+}
+
 // TestAcquireIdleSelectionLock_MutualExclusion verifies that the idle selection lock
 // serializes concurrent idle polecat selection attempts (gt-r8m regression test).
 // Without this lock, two concurrent slings can both observe the same polecat as idle,

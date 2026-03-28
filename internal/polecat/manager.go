@@ -104,6 +104,11 @@ var (
 	ErrShellInWorktree    = errors.New("shell working directory is inside polecat worktree")
 	ErrDoltUnhealthy      = errors.New("dolt health check failed")
 	ErrDoltAtCapacity     = errors.New("dolt server at connection capacity")
+	// ErrPolecatNotIdle is returned by ReuseIdlePolecat when a concurrent sling
+	// has already claimed the polecat (agent_state transitioned out of idle after
+	// FindIdlePolecat observed it as idle). Callers should fall through to fresh
+	// allocation rather than attempting worktree repair (gt-3f3).
+	ErrPolecatNotIdle = errors.New("polecat is no longer idle (claimed by concurrent sling)")
 )
 
 // UncommittedWorkError provides details about uncommitted work.
@@ -1550,6 +1555,18 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		return nil, ErrPolecatNotFound
 	}
 
+	// Guard against double-claim (gt-3f3): if the outer idle selection lock fails
+	// or is released before session start, a concurrent sling may have already
+	// claimed this polecat and set its agent_state to an active state. Check under
+	// the per-polecat lock to prevent clobbering the first sling's work. The
+	// loadFromBeads fix (also gt-3f3) handles the common case; this is defense-in-depth.
+	agentIDForCheck := m.agentBeadID(name)
+	if _, agentFieldsForCheck, agentBeadCheckErr := m.beads.GetAgentBead(agentIDForCheck); agentBeadCheckErr == nil && agentFieldsForCheck != nil {
+		if beads.AgentState(agentFieldsForCheck.AgentState).IsActive() {
+			return nil, fmt.Errorf("%w: agent_state=%s", ErrPolecatNotIdle, agentFieldsForCheck.AgentState)
+		}
+	}
+
 	// Kill any existing session unconditionally before reuse.
 	// The polecat was found idle (no hooked work), so even a "live" session is
 	// just Claude sitting at a dead ❯ prompt from the previous task. Leaving it
@@ -2203,11 +2220,17 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 	// Persistent polecat model (gt-4ac): only trust agent_state=idle once the
 	// tmux session is gone. This prevents reusing a polecat that still has a live
 	// session when its bead state was cleared early.
+	//
+	// gt-3f3: also treat active agent states (spawning, working, running) as
+	// StateWorking. ReuseIdlePolecat sets agent_state=spawning before the work
+	// bead is hooked, so without this check FindIdlePolecat returns the polecat
+	// as idle in the window between the idle selection lock release and hookup.
 	state := StateIdle
 	if issueID != "" {
 		state = StateWorking
-	} else if agentErr == nil && fields != nil && beads.AgentState(fields.AgentState) == beads.AgentStateIdle {
-		state = StateIdle
+	} else if agentErr == nil && fields != nil && beads.AgentState(fields.AgentState).IsActive() {
+		// agent_state is "spawning", "working", or "running" — polecat is claimed
+		state = StateWorking
 	}
 
 	return &Polecat{
