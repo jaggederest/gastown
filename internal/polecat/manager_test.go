@@ -1902,3 +1902,59 @@ func TestReuseIdlePolecat_NoSessionNoop(t *testing.T) {
 		t.Fatal("expected error from worktree operations")
 	}
 }
+
+// TestAcquireIdleSelectionLock_MutualExclusion verifies that the idle selection lock
+// serializes concurrent idle polecat selection attempts (gt-r8m regression test).
+// Without this lock, two concurrent slings can both observe the same polecat as idle,
+// both call ReuseIdlePolecat, and the second call kills the first sling's session.
+func TestAcquireIdleSelectionLock_MutualExclusion(t *testing.T) {
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+	r := &rig.Rig{Name: "testrig", Path: rigPath}
+	mgr := NewManager(r, git.NewGit(rigPath), nil)
+
+	// Acquire lock in main goroutine.
+	fl1, err := mgr.AcquireIdleSelectionLock()
+	if err != nil {
+		t.Fatalf("first AcquireIdleSelectionLock failed: %v", err)
+	}
+
+	// Second goroutine tries to acquire the same lock — must block until fl1 released.
+	// ready is closed just before the goroutine calls Lock(), ensuring we assert
+	// mutual exclusion only after the second goroutine is definitely waiting.
+	ready := make(chan struct{})
+	acquired := make(chan error, 1)
+	go func() {
+		close(ready) // signal: about to call Lock
+		fl2, err2 := mgr.AcquireIdleSelectionLock()
+		if err2 == nil {
+			_ = fl2.Unlock()
+		}
+		acquired <- err2
+	}()
+
+	// Wait until the goroutine is about to call Lock, then give it a moment to block.
+	<-ready
+	time.Sleep(20 * time.Millisecond)
+
+	// Goroutine must not have acquired the lock yet (first lock is still held).
+	select {
+	case <-acquired:
+		t.Fatal("second goroutine acquired idle selection lock before first was released — mutual exclusion broken")
+	default:
+		// Expected: goroutine is blocked on Lock().
+	}
+
+	// Release first lock — goroutine should now be able to proceed.
+	_ = fl1.Unlock()
+
+	select {
+	case err2 := <-acquired:
+		if err2 != nil {
+			t.Fatalf("second AcquireIdleSelectionLock failed: %v", err2)
+		}
+		// Expected: second goroutine acquired and released the lock.
+	case <-time.After(2 * time.Second):
+		t.Fatal("second goroutine never acquired idle selection lock after first was released")
+	}
+}

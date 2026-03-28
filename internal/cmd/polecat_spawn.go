@@ -148,8 +148,30 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
 	// Idle polecats have completed their work but kept their sandbox (worktree).
 	// Reusing avoids the overhead of creating a new worktree.
-	idlePolecat, findErr := polecatMgr.FindIdlePolecat()
-	if findErr == nil && idlePolecat != nil {
+	//
+	// The idle selection lock is scoped to this closure (gt-r8m): it is released
+	// before falling through to fresh allocation, so concurrent slings that all
+	// need fresh polecats are not unnecessarily serialized.
+	if reuseInfo, reuseErr := func() (*SpawnedPolecatInfo, error) {
+		// Acquire the idle selection lock to prevent concurrent slings from
+		// selecting the same idle polecat (TOCTOU race). Without this lock, two
+		// concurrent slings can both observe the same polecat as idle, both call
+		// ReuseIdlePolecat, and the second call kills the first sling's session.
+		selLock, lockErr := polecatMgr.AcquireIdleSelectionLock()
+		if lockErr != nil {
+			// Non-fatal: proceed without the lock. The per-polecat lock inside
+			// ReuseIdlePolecat still serializes the actual reuse; the race window
+			// is merely wider without this outer selection lock.
+			style.PrintWarning("could not acquire idle selection lock: %v (proceeding without lock)", lockErr)
+		} else {
+			defer func() { _ = selLock.Unlock() }()
+		}
+
+		idlePolecat, findErr := polecatMgr.FindIdlePolecat()
+		if findErr != nil || idlePolecat == nil {
+			return nil, nil // no idle polecat; fall through to fresh allocation
+		}
+
 		polecatName := idlePolecat.Name
 		fmt.Printf("Reusing idle polecat: %s\n", polecatName)
 
@@ -197,38 +219,44 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			reuseOK = true
 		}
 
-		if reuseOK {
-			polecatObj, err := polecatMgr.Get(polecatName)
-			if err != nil {
-				return nil, fmt.Errorf("getting idle polecat after reuse: %w", err)
-			}
-			if err := verifyWorktreeExists(polecatObj.ClonePath); err != nil {
-				return nil, fmt.Errorf("worktree verification failed for reused %s: %w", polecatName, err)
-			}
-
-			polecatSessMgr := polecat.NewSessionManager(t, r)
-			sessionName := polecatSessMgr.SessionName(polecatName)
-
-			fmt.Printf("%s Polecat %s reused (idle → working, session start deferred)\n", style.Bold.Render("✓"), polecatName)
-			_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
-
-			effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
-			if effectiveBranch == "" {
-				effectiveBranch = r.DefaultBranch()
-			}
-
-			return &SpawnedPolecatInfo{
-				RigName:     rigName,
-				PolecatName: polecatName,
-				ClonePath:   polecatObj.ClonePath,
-				SessionName: sessionName,
-				Pane:        "",
-				BaseBranch:  effectiveBranch,
-				Branch:      polecatObj.Branch,
-				account:     opts.Account,
-				agent:       opts.Agent,
-			}, nil
+		if !reuseOK {
+			return nil, nil // reuse failed; fall through to fresh allocation
 		}
+
+		polecatObj, err := polecatMgr.Get(polecatName)
+		if err != nil {
+			return nil, fmt.Errorf("getting idle polecat after reuse: %w", err)
+		}
+		if err := verifyWorktreeExists(polecatObj.ClonePath); err != nil {
+			return nil, fmt.Errorf("worktree verification failed for reused %s: %w", polecatName, err)
+		}
+
+		polecatSessMgr := polecat.NewSessionManager(t, r)
+		sessionName := polecatSessMgr.SessionName(polecatName)
+
+		fmt.Printf("%s Polecat %s reused (idle → working, session start deferred)\n", style.Bold.Render("✓"), polecatName)
+		_ = events.LogFeed(events.TypeSpawn, "gt", events.SpawnPayload(rigName, polecatName))
+
+		effectiveBranch := strings.TrimPrefix(baseBranch, "origin/")
+		if effectiveBranch == "" {
+			effectiveBranch = r.DefaultBranch()
+		}
+
+		return &SpawnedPolecatInfo{
+			RigName:     rigName,
+			PolecatName: polecatName,
+			ClonePath:   polecatObj.ClonePath,
+			SessionName: sessionName,
+			Pane:        "",
+			BaseBranch:  effectiveBranch,
+			Branch:      polecatObj.Branch,
+			account:     opts.Account,
+			agent:       opts.Agent,
+		}, nil
+	}(); reuseErr != nil {
+		return nil, reuseErr
+	} else if reuseInfo != nil {
+		return reuseInfo, nil
 	}
 
 	// Determine base branch for polecat worktree
