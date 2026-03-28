@@ -212,8 +212,7 @@ func (m *Manager) Start(foreground bool, agentOverride string, envOverrides []st
 	// the canonical qualified GT_ROLE (e.g., "gastown/witness" not "witness").
 	// See: https://github.com/steveyegge/gastown/issues/2492
 	for key, value := range roleConfigEnvVars(roleConfig, townRoot, m.rig.Name) {
-		if existing, alreadySet := envVars[key]; alreadySet {
-			log.Printf("witness env: skipping TOML %s=%q (AgentEnv already set %q)", key, value, existing)
+		if _, alreadySet := envVars[key]; alreadySet {
 			continue
 		}
 		_ = t.SetEnvironment(sessionID, key, value)
