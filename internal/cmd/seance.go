@@ -22,40 +22,48 @@ import (
 )
 
 var (
-	seanceRole   string
-	seanceRig    string
-	seanceRecent int
-	seanceTalk   string
-	seancePrompt string
-	seanceJSON   bool
+	seanceRole     string
+	seanceRig      string
+	seanceRecent   int
+	seanceTalk     string
+	seancePrompt   string
+	seanceJSON     bool
+	seanceLines    int
+	seancePaneOnly bool
 )
 
 var seanceCmd = &cobra.Command{
-	Use:     "seance",
+	Use:     "seance [rig/polecat]",
 	GroupID: GroupDiag,
-	Short:   "Talk to your predecessor sessions",
-	Long: `Seance lets you literally talk to predecessor sessions.
+	Short:   "Talk to predecessor sessions or inspect a live polecat",
+	Long: `Seance has two modes:
 
-"Where did you put the stuff you left for me?" - The #1 handoff question.
+LIVE POLECAT INSPECTION (non-destructive):
+  gt seance gastown/furiosa     # Show live state of a running polecat
+  gt seance gastown/furiosa --pane-only   # Just the tmux pane output
+  gt seance gastown/furiosa --lines 80    # Show 80 lines of pane output
+  gt seance gastown/furiosa --json        # Machine-readable output
 
-Instead of parsing logs, seance spawns a Claude subprocess that resumes
-a predecessor session with full context. You can ask questions directly:
-  - "Why did you make this decision?"
-  - "Where were you stuck?"
-  - "What did you try that didn't work?"
+  Output shows (in one command):
+    - Pane tail: last N lines of the tmux pane
+    - Git state: branch, uncommitted changes, unpushed commits, last commit
+    - Formula step: current mol-polecat-work step (from checkpoint)
+    - Bead status: assigned bead title + status
+    - Session vitals: session age, last activity timestamp
 
-DISCOVERY:
+  Use case: Mayor runs 'gt seance worldsim/chrome' before deciding whether
+  to nuke a stalled polecat. Distinguishes 'thinking hard' from 'truly dead'.
+
+PREDECESSOR SESSION TALK:
   gt seance                     # List recent sessions from events
   gt seance --role crew         # Filter by role type
   gt seance --rig gastown       # Filter by rig
   gt seance --recent 10         # Last N sessions
-
-THE SEANCE (talk to predecessor):
   gt seance --talk <session-id>              # Interactive conversation
   gt seance --talk <id> -p "Where is X?"     # One-shot question
 
-The --talk flag spawns: claude --fork-session --resume <id>
-This loads the predecessor's full context without modifying their session.
+  The --talk flag spawns: claude --fork-session --resume <id>
+  This loads the predecessor's full context without modifying their session.
 
 Sessions are discovered from:
   1. Events emitted by SessionStart hooks (~/gt/.events.jsonl)
@@ -70,6 +78,8 @@ func init() {
 	seanceCmd.Flags().StringVarP(&seanceTalk, "talk", "t", "", "Session ID to commune with")
 	seanceCmd.Flags().StringVarP(&seancePrompt, "prompt", "p", "", "One-shot prompt (with --talk)")
 	seanceCmd.Flags().BoolVar(&seanceJSON, "json", false, "Output as JSON")
+	seanceCmd.Flags().IntVar(&seanceLines, "lines", 40, "Number of pane lines to show (with rig/polecat arg)")
+	seanceCmd.Flags().BoolVar(&seancePaneOnly, "pane-only", false, "Show only tmux pane output, for piping (with rig/polecat arg)")
 
 	rootCmd.AddCommand(seanceCmd)
 }
@@ -83,6 +93,15 @@ type sessionEvent struct {
 }
 
 func runSeance(cmd *cobra.Command, args []string) error {
+	// If a rig/polecat argument is provided, inspect the live polecat session.
+	if len(args) > 0 {
+		rigName, polecatName, err := parseAddress(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid address %q: expected rig/polecat format", args[0])
+		}
+		return runSeancePolecat(rigName, polecatName, seanceLines, seancePaneOnly, seanceJSON)
+	}
+
 	// If --talk is provided, spawn a seance
 	if seanceTalk != "" {
 		return runSeanceTalk(seanceTalk, seancePrompt)
