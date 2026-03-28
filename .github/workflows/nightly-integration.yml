@@ -9,7 +9,7 @@ jobs:
   integration-full:
     name: Full Integration Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -58,4 +58,4 @@ jobs:
         run: go build -v ./cmd/gt
 
       - name: Run all integration tests
-        run: gotestsum --format testname --junitfile junit.xml -- -v -tags=integration -timeout=20m ./...
+        run: gotestsum --format testname --junitfile junit.xml -- -race -v -tags=integration -timeout=25m ./...

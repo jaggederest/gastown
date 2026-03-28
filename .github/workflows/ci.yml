@@ -189,7 +189,7 @@ jobs:
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Integration Tests
-        run: gotestsum --format testname --junitfile junit-integration.xml -- -tags=integration -timeout=15m -v ./internal/cmd/...
+        run: gotestsum --format testname --junitfile junit-integration.xml -- -race -tags=integration -timeout=20m -v ./internal/cmd/...
 
       - name: Test Report
         if: always()
