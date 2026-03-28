@@ -202,6 +202,28 @@ func (m *Manager) lockPolecat(name string) (*flock.Flock, error) {
 	return fl, nil
 }
 
+// AcquireIdleSelectionLock acquires an exclusive lock that serializes idle polecat
+// selection across concurrent gt sling invocations. This prevents the TOCTOU race
+// where two concurrent slings both select the same idle polecat (gt-r8m).
+//
+// The lock must be held for the entire FindIdlePolecat → ReuseIdlePolecat critical
+// section. Without it, two concurrent slings can both see the same polecat as idle,
+// both claim it, and the second ReuseIdlePolecat call kills the first sling's session.
+//
+// Caller must call Unlock() on the returned flock.
+func (m *Manager) AcquireIdleSelectionLock() (*flock.Flock, error) {
+	lockDir := filepath.Join(m.rig.Path, ".runtime", "locks")
+	if err := os.MkdirAll(lockDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating lock dir: %w", err)
+	}
+	lockPath := filepath.Join(lockDir, "polecat-idle-selection.lock")
+	fl := flock.New(lockPath)
+	if err := fl.Lock(); err != nil {
+		return nil, fmt.Errorf("acquiring idle selection lock: %w", err)
+	}
+	return fl, nil
+}
+
 // lockPool acquires an exclusive file lock for name pool operations.
 // This prevents concurrent gt processes from racing on AllocateName/ReconcilePool.
 // Caller must defer fl.Unlock().
