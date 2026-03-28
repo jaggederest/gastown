@@ -678,7 +678,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Auto-select agent from bead complexity if no explicit --agent flag (gt-ywj).
 	// Determine rig name from target (rig name or polecat agent path) for MaxComplexity cap.
 	effectiveAgent := slingAgent
-	if effectiveAgent == "" && info.Complexity > 0 {
+	if complexity := info.effectiveComplexity(); effectiveAgent == "" && complexity > 0 {
 		rigName := target
 		if _, isRig := IsRigName(target); !isRig {
 			if r, ok := polecatRigFromTarget(target); ok {
@@ -691,7 +691,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		if rigName != "" {
 			rigPath = filepath.Join(townRoot, rigName)
 		}
-		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, info.Complexity); resolved != "" {
+		if resolved := config.ResolveAgentForComplexity(townRoot, rigPath, complexity); resolved != "" {
 			effectiveAgent = resolved
 		}
 	}
