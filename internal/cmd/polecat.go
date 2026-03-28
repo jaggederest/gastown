@@ -294,6 +294,31 @@ Examples:
 	RunE: runPolecatPrune,
 }
 
+var polecatSeanceCmd = &cobra.Command{
+	Use:   "seance <rig>/<polecat>",
+	Short: "Inspect live polecat session state without interrupting",
+	Long: `Non-destructive inspection of a polecat's current state.
+
+Displays in one command:
+  1. Pane tail     — last N lines of the tmux pane (what it's doing / last error)
+  2. Git state     — branch name, uncommitted changes, unpushed commits, last commit
+  3. Formula step  — current mol-polecat-work step (from checkpoint file)
+  4. Bead status   — assigned bead title + status
+  5. Session vitals — session age, last activity timestamp
+
+Use case: Mayor runs 'gt polecat seance gastown/chrome' before deciding
+whether to nuke a stalled polecat. Distinguishes 'thinking hard' (legitimate
+pause) from 'truly dead' (session gone or stuck at prompt with no progress).
+
+Examples:
+  gt polecat seance gastown/furiosa
+  gt polecat seance gastown/furiosa --lines 80
+  gt polecat seance gastown/furiosa --pane-only
+  gt polecat seance gastown/furiosa --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runPolecatSeance,
+}
+
 var polecatPoolInitCmd = &cobra.Command{
 	Use:   "pool-init <rig>",
 	Short: "Initialize a persistent polecat pool for a rig",
@@ -362,6 +387,11 @@ func init() {
 	polecatPoolInitCmd.Flags().BoolVar(&polecatPoolInitDryRun, "dry-run", false, "Show what would be created without doing it")
 	polecatPoolInitCmd.Flags().IntVar(&polecatPoolInitSize, "size", 0, "Pool size (overrides rig config)")
 
+	// Seance flags
+	polecatSeanceCmd.Flags().IntVar(&seanceLines, "lines", 40, "Number of pane lines to show")
+	polecatSeanceCmd.Flags().BoolVar(&seancePaneOnly, "pane-only", false, "Show only tmux pane output, for piping")
+	polecatSeanceCmd.Flags().BoolVar(&seanceJSON, "json", false, "Output as JSON")
+
 	// Add subcommands
 	polecatCmd.AddCommand(polecatListCmd)
 	polecatCmd.AddCommand(polecatAddCmd)
@@ -374,6 +404,7 @@ func init() {
 	polecatCmd.AddCommand(polecatStaleCmd)
 	polecatCmd.AddCommand(polecatPruneCmd)
 	polecatCmd.AddCommand(polecatPoolInitCmd)
+	polecatCmd.AddCommand(polecatSeanceCmd)
 
 	rootCmd.AddCommand(polecatCmd)
 }
@@ -1774,6 +1805,14 @@ func runPolecatPoolInit(cmd *cobra.Command, args []string) error {
 		style.Bold.Render("✓"), created, created+len(existing), poolSize)
 
 	return nil
+}
+
+func runPolecatSeance(cmd *cobra.Command, args []string) error {
+	rigName, polecatName, err := parseAddress(args[0])
+	if err != nil {
+		return err
+	}
+	return runSeancePolecat(rigName, polecatName, seanceLines, seancePaneOnly, seanceJSON)
 }
 
 // existingNamesList extracts polecat names from a slice of Polecat pointers.
