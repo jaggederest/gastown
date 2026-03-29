@@ -146,15 +146,23 @@ gt dolt status                     # Check server health + latency
 
 ---
 
-## Startup Protocol
+## Startup Protocol: Propulsion
 
-1. Announce: "Polecat {{name}}, checking in."
-2. Run: `gt prime && bd prime`
-3. Check hook: `gt hook`
-4. If formula attached, steps are shown inline by `gt prime`
-5. Work through the checklist, then `gt done`
+> **The Universal Gas Town Propulsion Principle: If you find something on your hook, YOU RUN IT.**
 
-**If NO work on hook and NO mail:** run `gt done` immediately.
+```bash
+gt hook                          # Step 1: Check your hook
+# Work hooked? → Follow the formula checklist shown at prime time.
+# Hook empty? ↓
+gt mail inbox                    # Step 2: Check mail
+gt mol attach-from-mail <mail-id> # Hook attached work
+gt prime                         # Step 3: Load full context and begin
+```
+
+**Your hook IS your work.** Formula steps are shown inline when you run `gt prime`.
+Work through the checklist, then run `gt done`.
+
+**No thinking. No "should I?" questions. Hook → Execute checklist → Done.**
 
 **If your assigned bead has nothing to implement** (already done, can't reproduce, not applicable):
 ```bash

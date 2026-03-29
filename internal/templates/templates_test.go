@@ -581,6 +581,15 @@ func TestCreatePolecatCLAUDEmd(t *testing.T) {
 	if !strings.Contains(content, "MANDATORY FINAL STEP") {
 		t.Error("CLAUDE.md missing completion protocol with MANDATORY FINAL STEP")
 	}
+	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+		t.Error("CLAUDE.md missing propulsion startup protocol heading")
+	}
+	if !strings.Contains(content, "If you find something on your hook, YOU RUN IT.") {
+		t.Error("CLAUDE.md missing propulsion principle startup guidance")
+	}
+	if strings.Contains(content, `Announce: "Polecat`) {
+		t.Error("CLAUDE.md still contains deprecated polecat announcement startup step")
+	}
 }
 
 func TestCreatePolecatCLAUDEmd_WritesToLocalWhenTrackedExists(t *testing.T) {
@@ -628,6 +637,12 @@ func TestCreatePolecatCLAUDEmd_WritesToLocalWhenTrackedExists(t *testing.T) {
 	}
 	if !strings.Contains(localContent, "gt done") {
 		t.Fatal("gt done instructions not in CLAUDE.local.md — polecats will not know to call it")
+	}
+	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+		t.Error("startup protocol heading not appended")
+	}
+	if strings.Contains(content, `Announce: "Polecat`) {
+		t.Error("deprecated polecat announcement step should not be appended")
 	}
 }
 
@@ -771,6 +786,12 @@ func TestCreatePolecatCLAUDEmd_GitCleanRemovesLocal(t *testing.T) {
 	if string(claudeData) != townRoot {
 		t.Error("tracked CLAUDE.md was modified")
 	}
+	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+		t.Error("startup protocol heading not found after re-provision")
+	}
+	if strings.Contains(content, `Announce: "Polecat`) {
+		t.Error("deprecated polecat announcement step found after re-provision")
+	}
 }
 
 // TestCreatePolecatCLAUDEmd_GitCleanScenario simulates git clean -f removing
@@ -804,7 +825,14 @@ func TestCreatePolecatCLAUDEmd_GitCleanScenario(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(claudePath)
-	if !strings.Contains(string(data), "gt done") {
+	content := string(data)
+	if !strings.Contains(content, "gt done") {
 		t.Fatal("gt done instructions not found after re-creation")
+	}
+	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+		t.Error("startup protocol heading not found after re-creation")
+	}
+	if strings.Contains(content, `Announce: "Polecat`) {
+		t.Error("deprecated polecat announcement step found after re-creation")
 	}
 }
