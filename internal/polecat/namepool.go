@@ -79,7 +79,17 @@ var BuiltinThemes = map[string][]string{
 		"overseer", "sentinel", "paladin", "scribe", "initiate",
 		"elder", "lancer", "knight", "squire", "proctor",
 	},
+	"cthulhu-mythos": {
+		"cthulhu", "azathoth", "nyarla", "shoggoth", "dagon",
+		"ithaqua", "hastur", "glaaki", "tsathoggua", "byakhee",
+		"lloigor", "nodens", "ghatanothoa", "hydra", "atul",
+	},
 }
+
+// autoAssignedThemes is the stable subset used for hash-based default theme
+// selection. New built-in themes should be opt-in by style unless we
+// intentionally want to remap existing rigs.
+var autoAssignedThemes = []string{"mad-max", "minerals", "wasteland"}
 
 // NamePool manages a bounded pool of reusable polecat names.
 // Names are allocated once per polecat and persist across assignments in the
@@ -426,10 +436,16 @@ func ListThemes() []string {
 	return themes
 }
 
+func listAutoAssignedThemes() []string {
+	themes := append([]string(nil), autoAssignedThemes...)
+	sort.Strings(themes)
+	return themes
+}
+
 // ThemeForRig returns a deterministic theme for a rig based on its name.
 // This provides variety across rigs without requiring manual configuration.
 func ThemeForRig(rigName string) string {
-	themes := ListThemes()
+	themes := listAutoAssignedThemes()
 	if len(themes) == 0 {
 		return DefaultTheme
 	}
@@ -445,7 +461,7 @@ func ThemeForRig(rigName string) string {
 // This ensures polecat names are unique across rigs by giving each rig a different theme.
 // If all built-in themes are taken, falls back to the hash-based ThemeForRig result.
 func ThemeForRigAvoiding(rigName string, usedThemes []string) string {
-	themes := ListThemes()
+	themes := listAutoAssignedThemes()
 	if len(themes) == 0 {
 		return DefaultTheme
 	}
