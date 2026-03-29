@@ -354,10 +354,8 @@ func TestFormatStartupBeacon(t *testing.T) {
 			wantSub: []string{
 				"[GAS TOWN]",
 				"polecat ruby (rig: myrig)",
-				"gt prime",
-			},
-			wantNot: []string{
-				"begin work", // excluded when IncludePrimeInstruction is set
+				"gt prime --hook",
+				"begin work on your hook",
 			},
 		},
 		{

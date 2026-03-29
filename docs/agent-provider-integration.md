@@ -420,8 +420,8 @@ The startup fallback matrix (from `internal/runtime/runtime.go`):
 |-----------|-----------|----------------|-------------------|
 | Yes | Yes | Hook runs `gt prime` | In CLI prompt arg |
 | Yes | No | Hook runs `gt prime` | Sent via nudge |
-| No | Yes | "Run `gt prime`" in prompt | Delayed nudge |
-| No | No | "Run `gt prime`" via nudge | Delayed nudge |
+| No | Yes | "Run `gt prime --hook` and begin work" in prompt | Delayed nudge |
+| No | No | "Run `gt prime --hook` and begin work" via nudge | Delayed nudge |
 
 Agents with hooks get the most reliable experience. Without hooks, Gas Town
 falls back to tmux-based delivery with timing heuristics.
