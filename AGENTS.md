@@ -8,6 +8,22 @@ This file exists for compatibility with tools that look for AGENTS.md.
 
 Full context is injected by `gt prime` at session start.
 
+---
+
+## Gas Town Startup Protocol
+
+If this session is running inside a Gas Town polecat worktree, start with:
+
+```bash
+gt prime --hook
+```
+
+Then follow the work on your hook immediately. Do not announce, wait for confirmation,
+or hunt for unrelated work.
+
+If your hook has nothing to implement, close the assigned bead with a `no-changes`
+reason and then run `gt done`.
+
 <!-- beads-agent-instructions-v2 -->
 
 ---
