@@ -355,6 +355,16 @@ func TestNamePool_Themes(t *testing.T) {
 	if name != "rust" {
 		t.Errorf("expected rust (first wasteland name), got %s", name)
 	}
+
+	// Test cthulhu-mythos theme
+	if err := pool.SetTheme("cthulhu-mythos"); err != nil {
+		t.Fatalf("SetTheme error: %v", err)
+	}
+
+	name, _ = pool.Allocate()
+	if name != "cthulhu" {
+		t.Errorf("expected cthulhu (first mythos name), got %s", name)
+	}
 }
 
 func TestNamePool_CustomNames(t *testing.T) {
@@ -380,12 +390,17 @@ func TestNamePool_CustomNames(t *testing.T) {
 
 func TestListThemes(t *testing.T) {
 	themes := ListThemes()
-	if len(themes) != 3 {
-		t.Errorf("expected 3 themes, got %d", len(themes))
+	if len(themes) != 4 {
+		t.Errorf("expected 4 themes, got %d", len(themes))
 	}
 
 	// Check that all expected themes are present
-	expected := map[string]bool{"mad-max": true, "minerals": true, "wasteland": true}
+	expected := map[string]bool{
+		"mad-max":        true,
+		"minerals":       true,
+		"wasteland":      true,
+		"cthulhu-mythos": true,
+	}
 	for _, theme := range themes {
 		if !expected[theme] {
 			t.Errorf("unexpected theme: %s", theme)
@@ -403,6 +418,14 @@ func TestGetThemeNames(t *testing.T) {
 	}
 	if names[0] != "furiosa" {
 		t.Errorf("expected first name to be furiosa, got %s", names[0])
+	}
+
+	mythos, err := GetThemeNames("cthulhu-mythos")
+	if err != nil {
+		t.Fatalf("GetThemeNames(cthulhu-mythos) error: %v", err)
+	}
+	if mythos[0] != "cthulhu" {
+		t.Errorf("expected first mythos name to be cthulhu, got %s", mythos[0])
 	}
 
 	// Test invalid theme
@@ -775,9 +798,9 @@ func TestListAllThemes(t *testing.T) {
 
 	themes := ListAllThemes(tmpDir)
 
-	// Should have 3 built-in + 1 custom = 4
-	if len(themes) != 4 {
-		t.Fatalf("expected 4 themes, got %d: %v", len(themes), themes)
+	// Should have 4 built-in + 1 custom = 5
+	if len(themes) != 5 {
+		t.Fatalf("expected 5 themes, got %d: %v", len(themes), themes)
 	}
 
 	// Find custom theme
@@ -804,6 +827,9 @@ func TestIsBuiltinTheme(t *testing.T) {
 	}
 	if !IsBuiltinTheme("minerals") {
 		t.Error("minerals should be built-in")
+	}
+	if !IsBuiltinTheme("cthulhu-mythos") {
+		t.Error("cthulhu-mythos should be built-in")
 	}
 	if IsBuiltinTheme("tolkien") {
 		t.Error("tolkien should not be built-in")
