@@ -44,9 +44,9 @@ type BeaconConfig struct {
 	// If provided, appended to topic as "topic:mol-id"
 	MolID string
 
-	// IncludePrimeInstruction adds "Run gt prime" to beacon for non-hook agents.
-	// When true, the beacon tells the agent to manually run gt prime since
-	// there's no SessionStart hook to do it automatically.
+	// IncludePrimeInstruction adds the manual startup instruction for non-hook agents.
+	// When true, the beacon tells the agent to manually run gt prime --hook and
+	// begin work since there's no SessionStart hook to do it automatically.
 	IncludePrimeInstruction bool
 
 	// ExcludeWorkInstructions omits work instructions from the beacon.
@@ -84,12 +84,12 @@ func FormatStartupBeacon(cfg BeaconConfig) string {
 	beacon := fmt.Sprintf("[GAS TOWN] %s <- %s • %s • %s",
 		cfg.Recipient, cfg.Sender, timestamp, topic)
 
-	// For non-hook agents, add "Run gt prime" instruction since there's no
-	// SessionStart hook to do it automatically. Work instructions will
-	// come as a separate nudge after gt prime completes.
+	// For non-hook agents, add the hook-aware startup instruction since there's
+	// no SessionStart hook to do it automatically.
 	if cfg.IncludePrimeInstruction {
-		beacon += "\n\nRun `" + cli.Name() + " prime` to initialize your context."
-		// Don't add work instructions here - they come as a delayed nudge after gt prime
+		beacon += "\n\nRun `" + cli.Name() + " prime --hook` and begin work on your hook."
+		// Don't add duplicate work instructions here - non-hook agents may still
+		// receive a delayed nudge with more detail after gt prime completes.
 		return beacon
 	}
 

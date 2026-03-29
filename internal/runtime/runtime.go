@@ -122,7 +122,7 @@ func isAutonomousRole(role string) bool {
 }
 
 // DefaultPrimeWaitMs is the default wait time in milliseconds for non-hook agents
-// to run gt prime before sending work instructions.
+// to run gt prime --hook before sending work instructions.
 const DefaultPrimeWaitMs = 2000
 
 // StartupFallbackInfo describes what fallback actions are needed for agent startup
@@ -134,10 +134,11 @@ const DefaultPrimeWaitMs = 2000
 //	|-------|--------|--------------------------|---------------------|---------------------|
 //	| ✓     | ✓      | Standard                 | Hook runs gt prime  | In beacon           |
 //	| ✓     | ✗      | Standard (via nudge)     | Hook runs gt prime  | Same nudge          |
-//	| ✗     | ✓      | "Run gt prime" (prompt)  | Agent runs manually | Delayed nudge       |
-//	| ✗     | ✗      | "Run gt prime" (nudge)   | Agent runs manually | Delayed nudge       |
+//	| ✗     | ✓      | "Run gt prime --hook"    | Agent runs manually | Delayed nudge       |
+//	| ✗     | ✗      | "Run gt prime --hook"    | Agent runs manually | Delayed nudge       |
 type StartupFallbackInfo struct {
-	// IncludePrimeInBeacon indicates the beacon should include "Run gt prime" instruction.
+	// IncludePrimeInBeacon indicates the beacon should include the manual
+	// "Run gt prime --hook and begin work" instruction.
 	// True for non-hook agents where gt prime doesn't run automatically.
 	IncludePrimeInBeacon bool
 
@@ -178,7 +179,7 @@ func GetStartupFallbackInfo(rc *config.RuntimeConfig) *StartupFallbackInfo {
 	info := &StartupFallbackInfo{}
 
 	if !hasHooks {
-		// Non-hook agents need to be told to run gt prime
+		// Non-hook agents need to be told to run gt prime --hook themselves.
 		info.IncludePrimeInBeacon = true
 		info.SendStartupNudge = true
 		info.StartupNudgeDelayMs = DefaultPrimeWaitMs
