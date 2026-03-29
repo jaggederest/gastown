@@ -84,6 +84,44 @@ var BuiltinThemes = map[string][]string{
 		"ithaqua", "hastur", "glaaki", "tsathoggua", "byakhee",
 		"lloigor", "nodens", "ghatanothoa", "hydra", "atul",
 	},
+	"beatles": {
+		"john", "paul", "george", "ringo", "yoko", "stuart", "pete", "billy",
+	},
+	"stones": {
+		"mick", "keith", "charlie", "ronnie", "brian", "bill", "mick-t", "ian",
+	},
+	"smurfs": {
+		"papa", "smurfette", "brainy", "hefty", "clumsy", "grouchy", "vanity", "handy",
+		"dreamy", "lazy", "greedy", "jokey", "painter", "harmony", "poet", "tracker",
+		"wild", "farmer", "baker", "miner", "tailor", "timber", "sailor", "marco",
+		"slouchy", "sassette", "grandpa", "nanny",
+	},
+	"simpsons": {
+		"homer", "marge", "bart", "lisa", "maggie", "burns", "smithers", "flanders",
+		"moe", "barney", "lenny", "carl", "krusty", "milhouse", "nelson", "ralph",
+		"wiggum", "skinner", "chalmers", "lovejoy", "hibbert", "riviera", "wolfcastle", "otto",
+		"groundskeeper", "patty", "selma", "sideshow", "itchy", "scratchy", "apu", "kirk",
+		"luann", "fat-tony", "disco-stu", "hans", "gil", "bumblebee",
+	},
+	"marvel-minor": {
+		"gambit", "bishop", "cable", "domino", "forge", "dazzler", "jubilee", "sunspot",
+		"cannonball", "havok", "polaris", "warpath", "moonstar", "shatterstar", "rictor", "siryn",
+		"longshot", "mojo", "spiral", "arcade", "taskmaster", "bullseye", "elektra", "typhoid",
+		"echo", "moonknight", "darkhawk", "sleepwalker", "cloak", "dagger", "squirrel-girl", "gwenpool",
+	},
+	"dc-minor": {
+		"zatanna", "constantine", "deadman", "spectre", "etrigan", "swampthing", "starfire", "raven",
+		"beastboy", "cyborg", "terra", "jericho", "deathstroke", "ravager", "wildcat", "hourman",
+		"stargirl", "stripe", "sandman", "starman", "vixen", "firestorm", "booster", "beetle",
+		"huntress", "oracle", "batwoman", "renee", "katana", "metamorpho", "plastic-man",
+	},
+	"norse": {
+		"baldr", "freya", "heimdall", "tyr", "bragi", "idun", "njord", "skadi",
+		"forseti", "vidar", "vali", "hodr", "hermod", "sif", "frigg", "aegir",
+		"ran", "fenrir", "jormungandr", "yggdrasil", "mimir", "norns", "skuld", "verdandi",
+		"urd", "surtr", "hel", "nidhogg", "ratatosk", "sleipnir", "huginn", "muninn",
+		"geri", "freki", "tanngrisnir", "tanngnjostr", "gungnir", "draupnir", "brisingamen", "mjolnir",
+	},
 }
 
 // autoAssignedThemes is the stable subset used for hash-based default theme
