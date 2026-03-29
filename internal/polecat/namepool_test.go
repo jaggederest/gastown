@@ -390,8 +390,8 @@ func TestNamePool_CustomNames(t *testing.T) {
 
 func TestListThemes(t *testing.T) {
 	themes := ListThemes()
-	if len(themes) != 4 {
-		t.Errorf("expected 4 themes, got %d", len(themes))
+	if len(themes) != 11 {
+		t.Errorf("expected 11 themes, got %d", len(themes))
 	}
 
 	// Check that all expected themes are present
@@ -400,6 +400,13 @@ func TestListThemes(t *testing.T) {
 		"minerals":       true,
 		"wasteland":      true,
 		"cthulhu-mythos": true,
+		"beatles":        true,
+		"stones":         true,
+		"smurfs":         true,
+		"simpsons":       true,
+		"marvel-minor":   true,
+		"dc-minor":       true,
+		"norse":          true,
 	}
 	for _, theme := range themes {
 		if !expected[theme] {
@@ -426,6 +433,14 @@ func TestGetThemeNames(t *testing.T) {
 	}
 	if mythos[0] != "cthulhu" {
 		t.Errorf("expected first mythos name to be cthulhu, got %s", mythos[0])
+	}
+
+	beatles, err := GetThemeNames("beatles")
+	if err != nil {
+		t.Fatalf("GetThemeNames(beatles) error: %v", err)
+	}
+	if beatles[0] != "john" {
+		t.Errorf("expected first beatles name to be john, got %s", beatles[0])
 	}
 
 	// Test invalid theme
@@ -798,9 +813,9 @@ func TestListAllThemes(t *testing.T) {
 
 	themes := ListAllThemes(tmpDir)
 
-	// Should have 4 built-in + 1 custom = 5
-	if len(themes) != 5 {
-		t.Fatalf("expected 5 themes, got %d: %v", len(themes), themes)
+	// Should have 11 built-in + 1 custom = 12
+	if len(themes) != 12 {
+		t.Fatalf("expected 12 themes, got %d: %v", len(themes), themes)
 	}
 
 	// Find custom theme
@@ -830,6 +845,9 @@ func TestIsBuiltinTheme(t *testing.T) {
 	}
 	if !IsBuiltinTheme("cthulhu-mythos") {
 		t.Error("cthulhu-mythos should be built-in")
+	}
+	if !IsBuiltinTheme("beatles") {
+		t.Error("beatles should be built-in")
 	}
 	if IsBuiltinTheme("tolkien") {
 		t.Error("tolkien should not be built-in")
