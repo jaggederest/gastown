@@ -277,7 +277,7 @@ var builtinPresets = map[AgentPreset]*AgentPresetInfo{
 			OutputFlag: "--json",
 		},
 		// Runtime defaults
-		PromptMode:         "none",
+		PromptMode:         "arg",
 		ReadyPromptPrefix:  "› ",
 		ReadyDelayMs:       3000,
 		InstructionsFile:   "AGENTS.md",
