@@ -951,9 +951,11 @@ exit 0
 	}
 }
 
-// TestCreateAutoConvoy_DepFailCleansUpOrphan verifies that when the dep add
-// fails, the convoy is closed to prevent orphans.
-func TestCreateAutoConvoy_DepFailCleansUpOrphan(t *testing.T) {
+// TestCreateAutoConvoy_DepFailIsNonFatal verifies that when the dep add
+// fails, the convoy is still returned successfully (non-fatal per 103b6aaa).
+// Cross-rig beads cannot satisfy bd dep add validation, so tracking failure
+// is treated as a warning, not an error.
+func TestCreateAutoConvoy_DepFailIsNonFatal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping on windows")
 	}
@@ -985,25 +987,22 @@ exit 0
 		t.Fatalf("rewrite bd stub: %v", err)
 	}
 
-	_, err := createAutoConvoy("gt-aaa", "My task", false, "", "")
-	if err == nil {
-		t.Fatal("expected error when dep add fails, got nil")
+	convoyID, err := createAutoConvoy("gt-aaa", "My task", false, "", "")
+	if err != nil {
+		t.Fatalf("expected dep failure to be non-fatal, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tracking relation") {
-		t.Errorf("error should mention tracking relation, got: %v", err)
+	if convoyID == "" {
+		t.Fatal("expected convoy ID to be returned despite dep failure")
 	}
 
-	// Verify close was called (orphan cleanup)
+	// Verify close was NOT called (no orphan cleanup needed for non-fatal dep failure)
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
 	logContent := string(logBytes)
-	if !strings.Contains(logContent, "CMD:close") {
-		t.Errorf("expected close command for orphan cleanup:\n%s", logContent)
-	}
-	if !strings.Contains(logContent, "tracking dep failed") {
-		t.Errorf("close should include 'tracking dep failed' reason:\n%s", logContent)
+	if strings.Contains(logContent, "CMD:close") {
+		t.Errorf("close should NOT be called when dep add fails (non-fatal):\n%s", logContent)
 	}
 }
 
