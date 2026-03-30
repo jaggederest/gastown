@@ -91,6 +91,12 @@ type AgentPresetInfo struct {
 	// NonInteractive contains settings for non-interactive mode.
 	NonInteractive *NonInteractiveConfig `json:"non_interactive,omitempty"`
 
+	// UseExecForStartup indicates polecat sessions should use the agent's
+	// non-interactive exec subcommand for startup instead of interactive mode.
+	// When true, the startup prompt is delivered as a one-shot exec invocation
+	// rather than via interactive prompt + nudge fallback. Requires NonInteractive.Subcommand.
+	UseExecForStartup bool `json:"use_exec_for_startup,omitempty"`
+
 	// --- Runtime default fields (replaces scattered default*() switch statements) ---
 
 	// PromptMode controls how the initial prompt is delivered: "arg" or "none".
@@ -272,6 +278,7 @@ var builtinPresets = map[AgentPreset]*AgentPresetInfo{
 		ResumeStyle:         "subcommand",
 		SupportsHooks:       false, // Use env/files instead
 		SupportsForkSession: false,
+		UseExecForStartup:   true, // Use "codex exec --json" for polecat startup (gt-ta9)
 		NonInteractive: &NonInteractiveConfig{
 			Subcommand: "exec",
 			OutputFlag: "--json",
@@ -594,6 +601,26 @@ func RuntimeConfigFromPreset(preset AgentPreset) *RuntimeConfig {
 	}
 
 	return normalizeRuntimeConfig(rc)
+}
+
+// BuildExecStartupInnerCommand returns the inner agent command for exec-based polecat
+// startup (e.g., "codex exec --json '<prompt>'"). Returns empty string if the agent
+// does not support exec startup (UseExecForStartup=false or no NonInteractive.Subcommand).
+// The returned string is the agent portion only — callers must prepend env var exports.
+func BuildExecStartupInnerCommand(agentName, prompt string) string {
+	info := GetAgentPresetByName(agentName)
+	if info == nil || !info.UseExecForStartup || info.NonInteractive == nil || info.NonInteractive.Subcommand == "" {
+		return ""
+	}
+
+	cmd := info.Command + " " + info.NonInteractive.Subcommand
+	if info.NonInteractive.OutputFlag != "" {
+		cmd += " " + info.NonInteractive.OutputFlag
+	}
+	if prompt != "" {
+		cmd += " " + quoteForShell(prompt)
+	}
+	return cmd
 }
 
 // BuildResumeCommand builds a command to resume an agent session.

@@ -274,8 +274,23 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// Non-hook agents need "Run gt prime" in beacon; work instructions come as delayed nudge.
 	fallbackInfo := runtime.GetStartupFallbackInfo(runtimeConfig)
 
+	// Check if this agent uses exec-based polecat startup (e.g., Codex with UseExecForStartup=true).
+	// Exec agents run "codex exec --json '<prompt>'" instead of interactive mode; the full task
+	// is delivered in one shot — no delayed nudge or verifyStartupNudgeDelivery needed.
+	useExecStartup := false
+	if preset := config.GetAgentPresetByName(runtimeConfig.ResolvedAgent); preset != nil {
+		useExecStartup = preset.UseExecForStartup
+	}
+	// Also check the explicit agent override (may not yet be reflected in ResolvedAgent).
+	if !useExecStartup && opts.Agent != "" {
+		if preset := config.GetAgentPresetByName(opts.Agent); preset != nil {
+			useExecStartup = preset.UseExecForStartup
+		}
+	}
+
 	// Build startup command with beacon for predecessor discovery.
 	// Configure beacon based on agent's hook/prompt capabilities.
+	// Exec-startup agents receive the full prompt in one shot; no delayed nudge.
 	address := session.BeaconRecipient("polecat", polecat, m.rig.Name)
 	beaconConfig := session.BeaconConfig{
 		Recipient:               address,
@@ -283,7 +298,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 		Topic:                   "assigned",
 		MolID:                   opts.Issue,
 		IncludePrimeInstruction: fallbackInfo.IncludePrimeInBeacon,
-		ExcludeWorkInstructions: fallbackInfo.SendStartupNudge,
+		ExcludeWorkInstructions: fallbackInfo.SendStartupNudge && !useExecStartup,
 	}
 	beacon := session.FormatStartupBeacon(beaconConfig)
 
@@ -430,40 +445,45 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// falling back to ReadyDelayMs sleep for agents without prompt detection.
 	debugSession("WaitForRuntimeReady", m.tmux.WaitForRuntimeReady(sessionID, runtimeConfig, constants.ClaudeStartTimeout))
 
-	// Handle fallback nudges for non-hook agents.
-	// See StartupFallbackInfo in runtime package for the fallback matrix.
-	if fallbackInfo.SendBeaconNudge && fallbackInfo.SendStartupNudge && fallbackInfo.StartupNudgeDelayMs == 0 {
-		// Hooks + no prompt: Single combined nudge (hook already ran gt prime synchronously)
-		combined := beacon + "\n\n" + runtime.StartupNudgeContent()
-		debugSession("SendCombinedNudge", m.tmux.NudgeSession(sessionID, combined))
-	} else {
-		if fallbackInfo.SendBeaconNudge {
-			// Agent doesn't support CLI prompt - send beacon via nudge
-			debugSession("SendBeaconNudge", m.tmux.NudgeSession(sessionID, beacon))
+	// Exec-startup agents (e.g., Codex) receive the full prompt in one shot via
+	// "codex exec --json '<prompt>'". No nudge delivery or verification is needed:
+	// the agent has everything it needs and will work autonomously until calling gt done.
+	if !useExecStartup {
+		// Handle fallback nudges for non-hook agents.
+		// See StartupFallbackInfo in runtime package for the fallback matrix.
+		if fallbackInfo.SendBeaconNudge && fallbackInfo.SendStartupNudge && fallbackInfo.StartupNudgeDelayMs == 0 {
+			// Hooks + no prompt: Single combined nudge (hook already ran gt prime synchronously)
+			combined := beacon + "\n\n" + runtime.StartupNudgeContent()
+			debugSession("SendCombinedNudge", m.tmux.NudgeSession(sessionID, combined))
+		} else {
+			if fallbackInfo.SendBeaconNudge {
+				// Agent doesn't support CLI prompt - send beacon via nudge
+				debugSession("SendBeaconNudge", m.tmux.NudgeSession(sessionID, beacon))
+			}
+
+			if fallbackInfo.StartupNudgeDelayMs > 0 {
+				// Wait for agent to finish processing beacon + gt prime before sending work instructions.
+				// Uses prompt-based detection where available; falls back to max(ReadyDelayMs, StartupNudgeDelayMs).
+				primeWaitRC := runtime.RuntimeConfigWithMinDelay(runtimeConfig, fallbackInfo.StartupNudgeDelayMs)
+				debugSession("WaitForPrimeReady", m.tmux.WaitForRuntimeReady(sessionID, primeWaitRC, constants.ClaudeStartTimeout))
+			}
+
+			if fallbackInfo.SendStartupNudge {
+				// Send work instructions via nudge
+				debugSession("SendStartupNudge", m.tmux.NudgeSession(sessionID, runtime.StartupNudgeContent()))
+			}
 		}
 
-		if fallbackInfo.StartupNudgeDelayMs > 0 {
-			// Wait for agent to finish processing beacon + gt prime before sending work instructions.
-			// Uses prompt-based detection where available; falls back to max(ReadyDelayMs, StartupNudgeDelayMs).
-			primeWaitRC := runtime.RuntimeConfigWithMinDelay(runtimeConfig, fallbackInfo.StartupNudgeDelayMs)
-			debugSession("WaitForPrimeReady", m.tmux.WaitForRuntimeReady(sessionID, primeWaitRC, constants.ClaudeStartTimeout))
-		}
-
+		// Verify startup nudge was delivered: poll for idle prompt and retry if lost.
+		// This fixes the Mode B race where the nudge arrives before Claude Code is ready,
+		// causing the polecat to sit idle at an empty prompt. See GH#1379.
 		if fallbackInfo.SendStartupNudge {
-			// Send work instructions via nudge
-			debugSession("SendStartupNudge", m.tmux.NudgeSession(sessionID, runtime.StartupNudgeContent()))
+			m.verifyStartupNudgeDelivery(context.Background(), sessionID, runtimeConfig)
 		}
-	}
 
-	// Verify startup nudge was delivered: poll for idle prompt and retry if lost.
-	// This fixes the Mode B race where the nudge arrives before Claude Code is ready,
-	// causing the polecat to sit idle at an empty prompt. See GH#1379.
-	if fallbackInfo.SendStartupNudge {
-		m.verifyStartupNudgeDelivery(context.Background(), sessionID, runtimeConfig)
+		// Legacy fallback for other startup paths (non-fatal)
+		_ = runtime.RunStartupFallback(m.tmux, sessionID, "polecat", runtimeConfig)
 	}
-
-	// Legacy fallback for other startup paths (non-fatal)
-	_ = runtime.RunStartupFallback(m.tmux, sessionID, "polecat", runtimeConfig)
 
 	// Verify session survived startup - if the command crashed, the session may have died.
 	// Without this check, Start() would return success even if the pane died during initialization.

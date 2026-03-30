@@ -2513,7 +2513,16 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 		cmd += strings.Join(rc.ExecWrapper, " ") + " "
 	}
 
-	if prompt != "" {
+	// For exec-startup agents (e.g., Codex with UseExecForStartup=true), use the
+	// non-interactive exec subcommand instead of interactive mode. The prompt is
+	// delivered as a single one-shot exec invocation; no delayed nudge is needed.
+	agentForExec := rc.ResolvedAgent
+	if agentOverride != "" {
+		agentForExec = agentOverride
+	}
+	if execInner := BuildExecStartupInnerCommand(agentForExec, prompt); execInner != "" {
+		cmd += execInner
+	} else if prompt != "" {
 		cmd += rc.BuildCommandWithPrompt(prompt)
 	} else {
 		cmd += rc.BuildCommand()
