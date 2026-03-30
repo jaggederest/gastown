@@ -215,9 +215,11 @@ func runMayorStatusLine(t *tmux.Tmux) error {
 
 	// Track per-rig status for LED indicators and sorting
 	type rigStatus struct {
-		hasWitness  bool
-		hasRefinery bool
-		opState     string // "OPERATIONAL", "PARKED", or "DOCKED"
+		hasWitness     bool
+		hasRefinery    bool
+		opState        string // "OPERATIONAL", "PARKED", or "DOCKED"
+		polecatActive  int    // polecats with live tmux sessions (assigned work)
+		polecatTotal   int    // all polecat sandboxes (including idle, no session)
 	}
 	rigStatuses := make(map[string]*rigStatus)
 
@@ -246,8 +248,7 @@ func runMayorStatusLine(t *tmux.Tmux) error {
 			continue
 		}
 
-		// Track rig-level status (witness/refinery presence)
-		// Polecats are not tracked in tmux - they're a GC concern, not a display concern
+		// Track rig-level status (witness/refinery presence, polecat active sessions)
 		if agent.Rig != "" && registeredRigs[agent.Rig] {
 			if rigStatuses[agent.Rig] == nil {
 				rigStatuses[agent.Rig] = &rigStatus{}
@@ -257,6 +258,8 @@ func runMayorStatusLine(t *tmux.Tmux) error {
 				rigStatuses[agent.Rig].hasWitness = true
 			case AgentRefinery:
 				rigStatuses[agent.Rig].hasRefinery = true
+			case AgentPolecat:
+				rigStatuses[agent.Rig].polecatActive++
 			}
 		}
 
@@ -275,13 +278,25 @@ func runMayorStatusLine(t *tmux.Tmux) error {
 		}
 	}
 
-	// Get operational state for each rig
+	// Get operational state and total polecat count for each rig
 	for rigName, status := range rigStatuses {
 		opState, _ := getRigOperationalState(townRoot, rigName)
 		if opState == "PARKED" || opState == "DOCKED" {
 			status.opState = opState
 		} else {
 			status.opState = "OPERATIONAL"
+		}
+
+		// Count total polecat sandboxes (includes idle polecats with no session)
+		if townRoot != "" {
+			polecatsDir := filepath.Join(townRoot, rigName, "polecats")
+			if entries, err := os.ReadDir(polecatsDir); err == nil {
+				for _, e := range entries {
+					if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+						status.polecatTotal++
+					}
+				}
+			}
 		}
 	}
 
@@ -384,7 +399,13 @@ func runMayorStatusLine(t *tmux.Tmux) error {
 				displayName = prefix
 			}
 		}
-		rigParts = append(rigParts, led+space+displayName)
+
+		// Append polecat count annotation when the rig has polecats
+		entry := led + space + displayName
+		if status.polecatTotal > 0 {
+			entry += fmt.Sprintf(" %d/%d", status.polecatActive, status.polecatTotal)
+		}
+		rigParts = append(rigParts, entry)
 	}
 
 	if len(rigParts) > 0 {
