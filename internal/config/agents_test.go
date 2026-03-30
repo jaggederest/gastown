@@ -1226,6 +1226,88 @@ func TestCodexRuntimeConfigHasPromptDetection(t *testing.T) {
 	}
 }
 
+func TestBuildExecStartupInnerCommand(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		agentName string
+		prompt    string
+		wantEmpty bool
+		contains  []string
+	}{
+		{
+			name:      "codex with prompt",
+			agentName: "codex",
+			prompt:    "Run gt prime --hook",
+			wantEmpty: false,
+			contains:  []string{"codex", "exec", "--json"},
+		},
+		{
+			name:      "codex with empty prompt",
+			agentName: "codex",
+			prompt:    "",
+			wantEmpty: false,
+			contains:  []string{"codex", "exec", "--json"},
+		},
+		{
+			name:      "claude does not support exec startup",
+			agentName: "claude",
+			prompt:    "some prompt",
+			wantEmpty: true,
+		},
+		{
+			name:      "unknown agent returns empty",
+			agentName: "unknown-xyz",
+			prompt:    "prompt",
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BuildExecStartupInnerCommand(tt.agentName, tt.prompt)
+			if tt.wantEmpty {
+				if result != "" {
+					t.Errorf("BuildExecStartupInnerCommand(%s) = %q, want empty", tt.agentName, result)
+				}
+				return
+			}
+			if result == "" {
+				t.Fatalf("BuildExecStartupInnerCommand(%s) = empty, want non-empty", tt.agentName)
+			}
+			for _, s := range tt.contains {
+				if !strings.Contains(result, s) {
+					t.Errorf("BuildExecStartupInnerCommand(%s) = %q, missing %q", tt.agentName, result, s)
+				}
+			}
+		})
+	}
+}
+
+func TestCodexUseExecForStartup(t *testing.T) {
+	t.Parallel()
+
+	preset := GetAgentPreset(AgentCodex)
+	if preset == nil {
+		t.Fatal("GetAgentPreset(codex) returned nil")
+	}
+	if !preset.UseExecForStartup {
+		t.Error("Codex preset should have UseExecForStartup=true")
+	}
+	if preset.NonInteractive == nil || preset.NonInteractive.Subcommand != "exec" {
+		t.Error("Codex preset should have NonInteractive.Subcommand=exec")
+	}
+
+	// Exec startup command should use "exec" subcommand, not interactive args
+	cmd := BuildExecStartupInnerCommand("codex", "test prompt")
+	if strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Errorf("Exec startup command should not contain interactive args, got: %q", cmd)
+	}
+	if !strings.Contains(cmd, "codex exec") {
+		t.Errorf("Exec startup command should contain 'codex exec', got: %q", cmd)
+	}
+}
+
 func TestPiProviderDefaults(t *testing.T) {
 	t.Parallel()
 

@@ -393,6 +393,9 @@ func TestInstallForRole_GeminiRoleAware(t *testing.T) {
 }
 
 func TestInstallForRole_CodexRoleAware(t *testing.T) {
+	// Codex templates use {{GT_BIN}} which is resolved at install time.
+	gtBin := resolveGTBinary()
+
 	dir := t.TempDir()
 	err := InstallForRole("codex", dir, dir, "crew", ".codex", "hooks.json", false)
 	if err != nil {
@@ -401,10 +404,14 @@ func TestInstallForRole_CodexRoleAware(t *testing.T) {
 
 	got, _ := os.ReadFile(filepath.Join(dir, ".codex", "hooks.json"))
 	want, _ := templateFS.ReadFile("templates/codex/hooks-interactive.json")
-	if string(got) != string(want) {
-		t.Error("codex interactive: content mismatch")
+	// Apply the same {{GT_BIN}} substitution that the installer applies.
+	// hooks.json is a JSON file: use the JSON-escaped path (strip surrounding quotes).
+	gtBinJSON := strings.ReplaceAll(gtBin, `\`, `\\`)
+	wantResolved := strings.ReplaceAll(string(want), "{{GT_BIN}}", gtBinJSON)
+	if string(got) != wantResolved {
+		t.Errorf("codex interactive: content mismatch\ngot:  %q\nwant: %q", string(got), wantResolved)
 	}
-	if !strings.Contains(string(got), "gt costs record >/dev/null 2>&1 &") {
+	if !strings.Contains(string(got), "costs record >/dev/null 2>&1 &") {
 		t.Error("codex interactive: stop hook should silence gt costs record output")
 	}
 
@@ -416,10 +423,11 @@ func TestInstallForRole_CodexRoleAware(t *testing.T) {
 
 	got, _ = os.ReadFile(filepath.Join(dir2, ".codex", "hooks.json"))
 	want, _ = templateFS.ReadFile("templates/codex/hooks-autonomous.json")
-	if string(got) != string(want) {
-		t.Error("codex autonomous: content mismatch")
+	wantResolved = strings.ReplaceAll(string(want), "{{GT_BIN}}", gtBinJSON)
+	if string(got) != wantResolved {
+		t.Errorf("codex autonomous: content mismatch\ngot:  %q\nwant: %q", string(got), wantResolved)
 	}
-	if !strings.Contains(string(got), "gt costs record >/dev/null 2>&1 &") {
+	if !strings.Contains(string(got), "costs record >/dev/null 2>&1 &") {
 		t.Error("codex autonomous: stop hook should silence gt costs record output")
 	}
 }

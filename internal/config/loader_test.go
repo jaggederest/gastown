@@ -4856,9 +4856,10 @@ func TestBuildStartupCommandWithAgentOverride_UsesOverrideWhenNoTownRoot(t *test
 	if strings.Contains(cmd, "claude") {
 		t.Errorf("expected command to NOT contain 'claude' but got: %q", cmd)
 	}
-	// Should have the codex permissive approval/sandbox flag.
-	if !strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
-		t.Errorf("expected command to contain '--dangerously-bypass-approvals-and-sandbox' (codex flag) but got: %q", cmd)
+	// Codex uses exec startup (UseExecForStartup=true): "codex exec --json"
+	// instead of the interactive "codex --dangerously-bypass-approvals-and-sandbox".
+	if !strings.Contains(cmd, "codex exec") {
+		t.Errorf("expected command to contain 'codex exec' (exec startup) but got: %q", cmd)
 	}
 	// Should set GT_AGENT=codex
 	if !strings.Contains(cmd, "GT_AGENT=codex") {
