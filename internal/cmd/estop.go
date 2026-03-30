@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Emergency stop (gt estop / gt thaw) — pause and resume agent work.
 //
 // Original implementation by outdoorsea (PR #3237). Cherry-picked for

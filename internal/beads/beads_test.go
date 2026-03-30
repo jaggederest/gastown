@@ -144,16 +144,18 @@ exit /b 1
 `, exitCode)
 	} else {
 		scriptPath = filepath.Join(dir, "bd")
-		exitCode := "1"
 		if supportsAllowStale {
-			exitCode = "0"
-		}
-		script = fmt.Sprintf(`#!/bin/sh
-if [ "$1" = "--allow-stale" ]; then
-  exit %s
-fi
+			// Supporting stub: exits 0 with no "unknown flag" output
+			script = `#!/bin/sh
+exit 0
+`
+		} else {
+			// Non-supporting stub: outputs "unknown flag" to stderr (bd v0.60+ behavior)
+			script = `#!/bin/sh
+echo "unknown flag: --allow-stale" >&2
 exit 1
-`, exitCode)
+`
+		}
 	}
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
