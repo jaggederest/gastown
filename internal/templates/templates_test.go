@@ -638,10 +638,10 @@ func TestCreatePolecatCLAUDEmd_WritesToLocalWhenTrackedExists(t *testing.T) {
 	if !strings.Contains(localContent, "gt done") {
 		t.Fatal("gt done instructions not in CLAUDE.local.md — polecats will not know to call it")
 	}
-	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+	if !strings.Contains(localContent, "Startup Protocol: Propulsion") {
 		t.Error("startup protocol heading not appended")
 	}
-	if strings.Contains(content, `Announce: "Polecat`) {
+	if strings.Contains(localContent, `Announce: "Polecat`) {
 		t.Error("deprecated polecat announcement step should not be appended")
 	}
 }
@@ -786,10 +786,10 @@ func TestCreatePolecatCLAUDEmd_GitCleanRemovesLocal(t *testing.T) {
 	if string(claudeData) != townRoot {
 		t.Error("tracked CLAUDE.md was modified")
 	}
-	if !strings.Contains(content, "Startup Protocol: Propulsion") {
+	if !strings.Contains(string(localData), "Startup Protocol: Propulsion") {
 		t.Error("startup protocol heading not found after re-provision")
 	}
-	if strings.Contains(content, `Announce: "Polecat`) {
+	if strings.Contains(string(localData), `Announce: "Polecat`) {
 		t.Error("deprecated polecat announcement step found after re-provision")
 	}
 }
