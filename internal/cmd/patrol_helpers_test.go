@@ -130,6 +130,7 @@ func TestBuildRefineryPatrolVars_FullConfig(t *testing.T) {
 	// delete_merged_branches=true, judgment_enabled=false, review_depth="standard"
 	// merge_strategy is omitted when not explicitly set (formula default "direct" applies)
 	// New commands (setup, typecheck, lint, build) default to empty = omitted
+	// judgment_enabled and review_depth are always included
 	expected := map[string]string{
 		"integration_branch_refinery_enabled": "true",
 		"integration_branch_auto_land":        "false",
@@ -480,6 +481,51 @@ func TestBuildRefineryPatrolVars_MergeStrategyDefaultOmitted(t *testing.T) {
 	// merge_strategy should be absent when not explicitly configured
 	if _, ok := varMap["merge_strategy"]; ok {
 		t.Error("merge_strategy should be omitted when not configured (let formula default apply)")
+	}
+}
+
+func TestBuildRefineryPatrolVars_RepoSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	rigDir := filepath.Join(tmpDir, "testrig")
+	mayorRigDir := filepath.Join(rigDir, "mayor", "rig", ".gastown")
+	if err := os.MkdirAll(mayorRigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write repo-committed settings with judgment_enabled=true
+	trueVal := true
+	repoSettings := config.RigSettings{
+		Type:    "rig-settings",
+		Version: 1,
+		MergeQueue: &config.MergeQueueConfig{
+			JudgmentEnabled: &trueVal,
+			ReviewDepth:     "deep",
+		},
+	}
+	repoData, _ := json.Marshal(repoSettings)
+	if err := os.WriteFile(filepath.Join(mayorRigDir, "settings.json"), repoData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := RoleContext{
+		TownRoot: tmpDir,
+		Rig:      "testrig",
+	}
+	vars := buildRefineryPatrolVars(ctx)
+
+	varMap := make(map[string]string)
+	for _, v := range vars {
+		parts := splitFirstEquals(v)
+		if len(parts) == 2 {
+			varMap[parts[0]] = parts[1]
+		}
+	}
+
+	if got := varMap["judgment_enabled"]; got != "true" {
+		t.Errorf("judgment_enabled = %q, want %q (repo settings should enable it)", got, "true")
+	}
+	if got := varMap["review_depth"]; got != "deep" {
+		t.Errorf("review_depth = %q, want %q (repo settings should set depth)", got, "deep")
 	}
 }
 

@@ -367,12 +367,37 @@ func buildRefineryPatrolVars(ctx RoleContext) []string {
 	}
 	vars = append(vars, fmt.Sprintf("target_branch=%s", defaultBranch))
 
-	// MQ-specific vars: try settings/config.json first (legacy format), then
-	// fall back to the layered rig config (bead labels / wisp layer).
+	// MQ-specific vars: two-layer config (repo floor + local override).
+	// Layer 1: repo-committed defaults in mayor/rig/.gastown/settings.json.
+	//   Enables per-rig settings (e.g. judgment_enabled) to be tracked in git.
+	// Layer 2: local operator overrides in settings/config.json.
+	//   Not in git; used for machine-specific tuning without repo commits.
+	// Bead labels are last-resort fallback when neither layer is present.
+	var repoMQ *config.MergeQueueConfig
+	repoRoot := filepath.Join(rigPath, "mayor", "rig")
+	if repoSettings, _ := config.LoadRepoSettings(repoRoot); repoSettings != nil {
+		repoMQ = repoSettings.MergeQueue
+	}
+
+	var localMQ *config.MergeQueueConfig
 	settingsPath := filepath.Join(rigPath, "settings", "config.json")
-	settings, sErr := config.LoadRigSettings(settingsPath)
-	if sErr == nil && settings != nil && settings.MergeQueue != nil {
-		mq := settings.MergeQueue
+	if localSettings, sErr := config.LoadRigSettings(settingsPath); sErr == nil && localSettings != nil {
+		localMQ = localSettings.MergeQueue
+	}
+
+	// Compute effective MQ config. When both layers exist, merge with local
+	// taking precedence. When only one exists, use it directly to preserve
+	// all fields (MergeSettingsCommand only handles a subset of fields).
+	var mq *config.MergeQueueConfig
+	switch {
+	case repoMQ != nil && localMQ != nil:
+		mq = config.MergeSettingsCommand(repoMQ, localMQ)
+	case repoMQ != nil:
+		mq = repoMQ
+	default:
+		mq = localMQ
+	}
+	if mq != nil {
 		vars = append(vars, fmt.Sprintf("integration_branch_refinery_enabled=%t", mq.IsRefineryIntegrationEnabled()))
 		vars = append(vars, fmt.Sprintf("integration_branch_auto_land=%t", mq.IsIntegrationBranchAutoLandEnabled()))
 		vars = append(vars, fmt.Sprintf("run_tests=%t", mq.IsRunTestsEnabled()))

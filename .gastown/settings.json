@@ -1,0 +1,9 @@
+{
+    "_comment": "Gastown rig settings — committed to git as repo-sourced defaults.",
+    "_comment2": "Local operator overrides go in ~/gt/gastown/settings/config.json (not in git).",
+    "type": "rig-settings",
+    "version": 1,
+    "merge_queue": {
+        "judgment_enabled": true
+    }
+}
