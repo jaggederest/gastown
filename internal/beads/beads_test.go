@@ -144,16 +144,18 @@ exit /b 1
 `, exitCode)
 	} else {
 		scriptPath = filepath.Join(dir, "bd")
-		exitCode := "1"
 		if supportsAllowStale {
-			exitCode = "0"
-		}
-		script = fmt.Sprintf(`#!/bin/sh
-if [ "$1" = "--allow-stale" ]; then
-  exit %s
-fi
+			// Supporting stub: exits 0 with no "unknown flag" output
+			script = `#!/bin/sh
+exit 0
+`
+		} else {
+			// Non-supporting stub: outputs "unknown flag" to stderr (bd v0.60+ behavior)
+			script = `#!/bin/sh
+echo "unknown flag: --allow-stale" >&2
 exit 1
-`, exitCode)
+`
+		}
 	}
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
@@ -3076,6 +3078,62 @@ func TestBuildRoutingEnv(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildRunEnv_OverridesStaleDoltPortFromBeadsDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "dolt-server.port"), []byte("43113\n"), 0644); err != nil {
+		t.Fatalf("write dolt-server.port: %v", err)
+	}
+
+	t.Setenv("BEADS_DOLT_PORT", "3307")
+
+	env := (&Beads{workDir: tmpDir}).buildRunEnv()
+
+	found := false
+	for _, e := range env {
+		switch e {
+		case "BEADS_DOLT_PORT=43113":
+			found = true
+		case "BEADS_DOLT_PORT=3307":
+			t.Fatalf("stale BEADS_DOLT_PORT preserved in env: %v", env)
+		}
+	}
+	if !found {
+		t.Fatalf("expected BEADS_DOLT_PORT=43113 in env, got %v", env)
+	}
+}
+
+func TestBuildRoutingEnv_OverridesStaleDoltPortFromBeadsDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(beadsDir, "dolt-server.port"), []byte("43113\n"), 0644); err != nil {
+		t.Fatalf("write dolt-server.port: %v", err)
+	}
+
+	t.Setenv("BEADS_DOLT_PORT", "3307")
+
+	env := (&Beads{workDir: tmpDir}).buildRoutingEnv()
+
+	found := false
+	for _, e := range env {
+		switch e {
+		case "BEADS_DOLT_PORT=43113":
+			found = true
+		case "BEADS_DOLT_PORT=3307":
+			t.Fatalf("stale BEADS_DOLT_PORT preserved in env: %v", env)
+		}
+	}
+	if !found {
+		t.Fatalf("expected BEADS_DOLT_PORT=43113 in env, got %v", env)
 	}
 }
 

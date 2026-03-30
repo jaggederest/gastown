@@ -85,14 +85,37 @@ resolve that placeholder with this rule:
 ## Step Execution Order
 
 You MUST process steps in strict DAG order. Walk through each step sequentially,
-unless you are explicitly told to skip to a step."""
+unless you are explicitly told to skip to a step.
+
+## Abbreviated Patrol Mode (Idle Effort Tuning)
+
+When `await-event` outputs `EFFORT: reduced`, run an ABBREVIATED patrol.
+This happens when idle_cycles >= {{idle_effort_threshold}} (no events on channel).
+
+Abbreviated patrol rules:
+- **inbox-check**: Run `gt mail drain` and quick inbox check. Skip individual message processing unless new MERGE_READY found.
+- **queue-scan**: Quick `gt mq list` check. If queue is empty, skip directly to check-integration-branches.
+- **process-branch through merge-push**: Only run if queue-scan found work. Otherwise SKIP all.
+- **loop-check through generate-summary**: SKIP if no merges were processed.
+- **check-integration-branches**: Quick check only.
+- **context-check**: Quick self-assessment (one sentence).
+- **patrol-cleanup**: SKIP.
+- **burn-or-loop**: Normal (await-event as usual).
+
+When `await-event` outputs `EFFORT: full`, run all steps thoroughly (normal mode).
+
+The goal: idle cycles should burn ~10% of the tokens a full patrol uses."""
 formula = "mol-refinery-patrol"
-version = 12
+version = 13
 
 [vars]
 [vars.wisp_type]
 description = "Type of wisp created for this molecule"
 default = "patrol"
+
+[vars.idle_effort_threshold]
+description = "Idle cycles before switching to abbreviated patrol (0 = always full)"
+default = "1"
 
 [vars.integration_branch_refinery_enabled]
 description = "Whether the refinery merges to integration branches (true) or always to target_branch (false)"
@@ -880,11 +903,17 @@ End of patrol cycle decision. Use the signals from context-check to decide.
 
 **If you decide to continue patrolling:**
 
-Use await-event to subscribe to the refinery event channel with exponential backoff:
+Resolve your agent bead ID for this patrol cycle. You MUST replace `<YOUR_RIG>` below with your actual rig name (e.g., `beads`, `town`) before running:
+```bash
+bd list --type=agent --desc-contains="role_type: refinery" --json | jq -r '.[] | select(.status != "closed") | select(.description | test("(?m)^\\\\s*rig: <YOUR_RIG>\\\\s*$")) | .id'
+```
+This must return exactly one bead ID. If it returns zero results, STOP and report an error — verify you substituted `<YOUR_RIG>` correctly. If it returns multiple results, STOP and report an error — manual disambiguation is required. Use the single resolved bead ID as YOUR_AGENT_BEAD in the commands below.
+
+Then use await-event to subscribe to the refinery event channel with exponential backoff:
 
 ```bash
-gt mol step await-event --channel refinery --agent-bead gt-<rig>-refinery \
-  --backoff-base 30s --backoff-mult 2 --backoff-max 5m --cleanup
+gt mol step await-event --channel refinery --agent-bead YOUR_AGENT_BEAD \
+  --backoff-base 30s --backoff-mult 2 --backoff-max 15m --cleanup
 ```
 
 This command:
@@ -894,9 +923,10 @@ This command:
    - First timeout: 30s
    - Second timeout: 60s
    - Third timeout: 120s
-   - ...capped at 5 minutes max
+   - ...capped at 15 minutes max
 4. Tracks `idle:N` label on refinery agent bead for backoff state
 5. `--cleanup` auto-deletes processed event files
+6. Outputs `EFFORT: reduced` or `EFFORT: full` directive for next cycle
 
 **Supported events:**
 - `MERGE_READY` — from witness when polecat branch is pushed and ready to merge
@@ -912,6 +942,24 @@ gt agent state YOUR_AGENT_BEAD --set idle=0
 **On timeout** (no events):
 The idle counter was auto-incremented. Continue to next patrol cycle
 (the longer backoff will apply next time).
+
+## Effort-Based Patrol Routing
+
+After await-event returns, check the EFFORT directive in the output:
+
+**If `EFFORT: full`** — Run all steps thoroughly (normal patrol).
+
+**If `EFFORT: reduced`** — Run ABBREVIATED patrol:
+- inbox-check: Quick drain + check for MERGE_READY only
+- queue-scan: Quick `gt mq list`. If empty, skip to check-integration-branches
+- process-branch through merge-push: SKIP if queue empty
+- loop-check through generate-summary: SKIP if no merges processed
+- check-integration-branches: Quick check only
+- context-check: One-sentence self-assessment
+- patrol-cleanup: SKIP
+
+Abbreviated patrol should complete in ~10% of the tokens of a full patrol.
+Mark skipped steps as SKIP in the patrol report.
 
 After await-event returns (either by event or timeout):
 1. **Re-assess session health** (check RSS, context, age again — conditions change)
