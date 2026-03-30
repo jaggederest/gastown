@@ -1436,6 +1436,89 @@ func TestAutoCommitSafetyNet(t *testing.T) {
 	})
 }
 
+// TestAutoCommitSafetyNetExcludesInfraFiles verifies that the gt-pvx safety-net
+// auto-commit (gt-dlq) does NOT include infrastructure files like .beads/redirect,
+// .claude/, .runtime/, CLAUDE.md — these must never land on polecat branches.
+func TestAutoCommitSafetyNetExcludesInfraFiles(t *testing.T) {
+	dir := t.TempDir()
+	testRunGit(t, dir, "init")
+	testRunGit(t, dir, "config", "user.email", "test@test.com")
+	testRunGit(t, dir, "config", "user.name", "Test")
+
+	// Create initial commit
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	testRunGit(t, dir, "add", "README.md")
+	testRunGit(t, dir, "commit", "-m", "initial commit")
+
+	g := gitpkg.NewGit(dir)
+
+	t.Run("NonRuntimeFiles excludes infra paths", func(t *testing.T) {
+		// Create mixed files: real implementation + infra artifacts
+		implFile := filepath.Join(dir, "handler.go")
+		if err := os.WriteFile(implFile, []byte("package main\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(implFile)
+
+		claudeMD := filepath.Join(dir, "CLAUDE.md")
+		if err := os.WriteFile(claudeMD, []byte("# polecat context\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(claudeMD)
+
+		beadsDir := filepath.Join(dir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(beadsDir, "redirect"), []byte("gastown\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(beadsDir)
+
+		runtimeDir := filepath.Join(dir, ".runtime")
+		if err := os.MkdirAll(runtimeDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runtimeDir, "session.json"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(runtimeDir)
+
+		ws, err := g.CheckUncommittedWork()
+		if err != nil {
+			t.Fatalf("CheckUncommittedWork: %v", err)
+		}
+
+		nonRuntime := ws.NonRuntimeFiles()
+
+		// Only handler.go should be staged — infra files must be excluded.
+		for _, f := range nonRuntime {
+			switch {
+			case f == "CLAUDE.md":
+				t.Errorf("NonRuntimeFiles must not include CLAUDE.md")
+			case strings.HasPrefix(f, ".beads/"):
+				t.Errorf("NonRuntimeFiles must not include .beads/ files, got: %s", f)
+			case strings.HasPrefix(f, ".runtime/"):
+				t.Errorf("NonRuntimeFiles must not include .runtime/ files, got: %s", f)
+			case strings.HasPrefix(f, ".claude/"):
+				t.Errorf("NonRuntimeFiles must not include .claude/ files, got: %s", f)
+			}
+		}
+
+		found := false
+		for _, f := range nonRuntime {
+			if f == "handler.go" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("NonRuntimeFiles must include handler.go, got: %v", nonRuntime)
+		}
+	})
+}
+
 // TestSyncGuardWithUncommittedChanges verifies that the worktree sync guard
 // (gt-pvx) prevents switching branches when uncommitted changes remain.
 func TestSyncGuardWithUncommittedChanges(t *testing.T) {

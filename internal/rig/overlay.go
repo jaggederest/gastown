@@ -20,6 +20,7 @@ func gasTownIgnorePatterns() []string {
 		"state.json",
 		"CLAUDE.md",
 		"CLAUDE.local.md",
+		".beads/redirect", // routing file regenerated at spawn time, not project code
 	}
 }
 

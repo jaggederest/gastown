@@ -1554,7 +1554,34 @@ func isGasTownRuntimePath(path string) bool {
 			return true
 		}
 	}
+	// Match specific root-level infra files that are regenerated per-clone.
+	// These are gitignored in the repo but may appear untracked in worktrees
+	// that lack the pattern in their local exclude (e.g. older spawns, or
+	// repos without the pattern in their checked-in .gitignore).
+	for _, name := range []string{"CLAUDE.md", "state.json"} {
+		if path == name {
+			return true
+		}
+	}
 	return false
+}
+
+// NonRuntimeFiles returns all modified and untracked files that are NOT Gas Town
+// runtime artifacts. Used by the gt-pvx safety-net to stage only implementation
+// files, excluding infra files like .beads/redirect, .claude/, .runtime/, CLAUDE.md.
+func (s *UncommittedWorkStatus) NonRuntimeFiles() []string {
+	var files []string
+	for _, f := range s.ModifiedFiles {
+		if !isGasTownRuntimePath(f) {
+			files = append(files, f)
+		}
+	}
+	for _, f := range s.UntrackedFiles {
+		if !isGasTownRuntimePath(f) {
+			files = append(files, f)
+		}
+	}
+	return files
 }
 
 // CleanExcludingRuntime returns true if the only uncommitted changes are Gas Town
