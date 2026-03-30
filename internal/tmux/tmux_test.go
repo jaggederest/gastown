@@ -2291,3 +2291,51 @@ func TestValidateCommandBinary(t *testing.T) {
 		})
 	}
 }
+
+func TestNewTmuxForRemote(t *testing.T) {
+	t.Parallel()
+	host := "build-machine.example.com"
+	tm := NewTmuxForRemote(host)
+	if tm.RemoteHost() != host {
+		t.Errorf("RemoteHost() = %q, want %q", tm.RemoteHost(), host)
+	}
+	// socket name must be empty for remote (remote has its own tmux server)
+	if tm.socketName != "" {
+		t.Errorf("socketName = %q, want empty for remote Tmux", tm.socketName)
+	}
+}
+
+func TestShellSingleQuote(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello", "'hello'"},
+		{"with spaces", "'with spaces'"},
+		{"it's a test", "'it'\\''s a test'"},
+		{"no quotes", "'no quotes'"},
+		{"a'b'c", "'a'\\''b'\\''c'"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := ShellSingleQuote(tc.input)
+			if got != tc.want {
+				t.Errorf("ShellSingleQuote(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetRemoteHome_Local(t *testing.T) {
+	t.Parallel()
+	// For local (no remoteHost), should return the current user's home directory.
+	tm := &Tmux{}
+	home, err := tm.GetRemoteHome()
+	if err != nil {
+		t.Fatalf("GetRemoteHome() local: unexpected error: %v", err)
+	}
+	if home == "" {
+		t.Error("GetRemoteHome() local: returned empty home dir")
+	}
+}

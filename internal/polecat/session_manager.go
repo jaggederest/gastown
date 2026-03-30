@@ -205,23 +205,43 @@ func (m *SessionManager) polecatSlot(polecat string) int {
 }
 
 // Start creates and starts a new session for a polecat.
+// When the rig has remote_host configured in its settings, the session is created
+// on the remote machine via SSH. The upstream git repo is cloned on the remote
+// and a tmux session is started there. Dolt must be reachable from the remote.
 func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	if !m.hasPolecat(polecat) {
 		return fmt.Errorf("%w: %s", ErrPolecatNotFound, polecat)
 	}
 
 	sessionID := m.SessionName(polecat)
+	townRoot := filepath.Dir(m.rig.Path)
+
+	// Load remote host from rig settings. When set, all tmux operations and session
+	// creation are forwarded to the remote machine via SSH.
+	remoteSettings := loadRemoteSettings(m.rig.Path)
+	effectiveTmux := m.tmux
+	if remoteSettings.RemoteHost != "" {
+		effectiveTmux = tmux.NewTmuxForRemote(remoteSettings.RemoteHost)
+	}
 
 	// Check if session already exists.
 	// If an existing session's pane process has died, kill the stale session
 	// and proceed rather than returning ErrSessionRunning (gt-jn40ft).
-	running, err := m.tmux.HasSession(sessionID)
+	running, err := effectiveTmux.HasSession(sessionID)
 	if err != nil {
 		return fmt.Errorf("checking session: %w", err)
 	}
 	if running {
-		if m.isSessionStale(sessionID) {
-			if err := m.tmux.KillSessionWithProcesses(sessionID); err != nil {
+		isStale := false
+		if remoteSettings.RemoteHost != "" {
+			// For remote sessions, check staleness directly via remote tmux.
+			// Local heartbeat files don't exist for remote polecats.
+			isStale = isSessionProcessDead(effectiveTmux, sessionID, townRoot)
+		} else {
+			isStale = m.isSessionStale(sessionID)
+		}
+		if isStale {
+			if err := effectiveTmux.KillSessionWithProcesses(sessionID); err != nil {
 				return fmt.Errorf("killing stale session %s: %w", sessionID, err)
 			}
 		} else {
@@ -229,15 +249,42 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 		}
 	}
 
-	// Determine working directory
+	// Determine local clone path (for branch detection; always local even when remote).
+	localClonePath := m.clonePath(polecat)
+
+	// Determine working directory for the session.
+	// For remote sessions, clone the upstream repo on the remote machine.
 	workDir := opts.WorkDir
 	if workDir == "" {
-		workDir = m.clonePath(polecat)
+		if remoteSettings.RemoteHost != "" {
+			// Get the remote home directory to build an absolute remote path.
+			remoteHome, err := effectiveTmux.GetRemoteHome()
+			if err != nil {
+				return fmt.Errorf("resolving remote home dir: %w", err)
+			}
+			workDir = remotePolecatWorkDir(remoteHome, remoteSettings.RemoteTownRoot, m.rig.Name, polecat)
+
+			// Read local branch so the remote clone uses the same branch name.
+			localBranch := ""
+			if g := git.NewGit(localClonePath); g != nil {
+				if b, err := g.CurrentBranch(); err == nil {
+					localBranch = b
+				}
+			}
+
+			// Ensure the upstream is cloned on the remote with the correct branch.
+			if err := ensureRemoteClone(remoteSettings.RemoteHost, m.rig.GitURL, workDir, localBranch); err != nil {
+				return fmt.Errorf("setting up remote clone for %s: %w", polecat, err)
+			}
+		} else {
+			workDir = localClonePath
+		}
 	}
 
 	// Validate issue exists and isn't tombstoned BEFORE creating session.
 	// This prevents CPU spin loops from agents retrying work on invalid issues.
-	if opts.Issue != "" {
+	// Skipped for remote sessions — validation uses local file paths.
+	if opts.Issue != "" && remoteSettings.RemoteHost == "" {
 		if err := m.validateIssue(opts.Issue, workDir); err != nil {
 			return err
 		}
@@ -251,7 +298,6 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// This was the root cause of gt-1j3m: Codex polecats sat idle because the startup
 	// sequence used Claude's ReadyPromptPrefix ("❯ ") to detect readiness in a Codex
 	// session, timing out instead of using Codex's delay-based readiness.
-	townRoot := filepath.Dir(m.rig.Path)
 	var runtimeConfig *config.RuntimeConfig
 	if opts.Agent != "" {
 		rc, _, err := config.ResolveAgentConfigWithOverride(townRoot, m.rig.Path, opts.Agent)
@@ -265,9 +311,12 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 
 	// Ensure runtime settings exist in the shared polecats parent directory.
 	// Settings are passed to Claude Code via --settings flag.
-	polecatSettingsDir := config.RoleSettingsDir("polecat", m.rig.Path)
-	if err := runtime.EnsureSettingsForRole(polecatSettingsDir, workDir, "polecat", runtimeConfig); err != nil {
-		return fmt.Errorf("ensuring runtime settings: %w", err)
+	// Skipped for remote sessions — settings files live on the local machine.
+	if remoteSettings.RemoteHost == "" {
+		polecatSettingsDir := config.RoleSettingsDir("polecat", m.rig.Path)
+		if err := runtime.EnsureSettingsForRole(polecatSettingsDir, workDir, "polecat", runtimeConfig); err != nil {
+			return fmt.Errorf("ensuring runtime settings: %w", err)
+		}
 	}
 
 	// Get fallback info to determine beacon content based on agent capabilities.
@@ -287,6 +336,13 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	}
 	beacon := session.FormatStartupBeacon(beaconConfig)
 
+	// Determine the effective town root for the polecat's environment.
+	// Remote sessions use the remote town root (where gt CLI is installed on the build machine).
+	effectiveTownRoot := townRoot
+	if remoteSettings.RemoteHost != "" {
+		effectiveTownRoot = remoteSettings.remoteTownRootAbs(workDir)
+	}
+
 	command := opts.Command
 	if command == "" {
 		var err error
@@ -294,7 +350,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 			Role:        "polecat",
 			Rig:         m.rig.Name,
 			AgentName:   polecat,
-			TownRoot:    townRoot,
+			TownRoot:    effectiveTownRoot,
 			Prompt:      beacon,
 			Issue:       opts.Issue,
 			Topic:       "assigned",
@@ -304,14 +360,20 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 			return fmt.Errorf("building startup command: %w", err)
 		}
 	}
-	// Prepend runtime config dir env if needed
-	if runtimeConfig.Session != nil && runtimeConfig.Session.ConfigDirEnv != "" && opts.RuntimeConfigDir != "" {
+	// Prepend runtime config dir env if needed (local accounts only; remote has its own config).
+	if remoteSettings.RemoteHost == "" && runtimeConfig.Session != nil && runtimeConfig.Session.ConfigDirEnv != "" && opts.RuntimeConfigDir != "" {
 		command = config.PrependEnv(command, map[string]string{runtimeConfig.Session.ConfigDirEnv: opts.RuntimeConfigDir})
 	}
 
 	// Disable Dolt auto-commit for polecats to prevent manifest contention
 	// under concurrent load (gt-5cc2p). Changes merge at gt done time.
 	command = config.PrependEnv(command, map[string]string{"BD_DOLT_AUTO_COMMIT": "off"})
+
+	// For remote sessions: inject the Dolt host so bd/gt commands connect to the
+	// control machine's Dolt server instead of localhost.
+	if remoteSettings.RemoteHost != "" && remoteSettings.RemoteDoltHost != "" {
+		command = config.PrependEnv(command, map[string]string{"BD_DOLT_HOST": remoteSettings.RemoteDoltHost})
+	}
 
 	// FIX (ga-6s284): Prepend GT_RIG, GT_POLECAT, GT_ROLE to startup command
 	// so they're inherited by Kimi and other agents. Setting via tmux.SetEnvironment
@@ -320,8 +382,11 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// GT_BRANCH and GT_POLECAT_PATH are critical for gt done's nuked-worktree fallback:
 	// when the polecat's cwd is deleted before gt done finishes, these env vars allow
 	// branch detection and path resolution without a working directory.
+	//
+	// For remote sessions, GT_BRANCH is read from the local clone (same branch name is
+	// used on the remote via ensureRemoteClone).
 	polecatGitBranch := ""
-	if g := git.NewGit(workDir); g != nil {
+	if g := git.NewGit(localClonePath); g != nil {
 		if b, err := g.CurrentBranch(); err == nil {
 			polecatGitBranch = b
 		}
@@ -334,7 +399,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 		"GT_POLECAT":      polecat,
 		"GT_ROLE":         fmt.Sprintf("%s/polecats/%s", m.rig.Name, polecat),
 		"GT_POLECAT_PATH": workDir,
-		"GT_TOWN_ROOT":    townRoot,
+		"GT_TOWN_ROOT":    effectiveTownRoot,
 		"GT_RUN":          runID,
 		"POLECAT_SLOT":    fmt.Sprintf("%d", m.polecatSlot(polecat)),
 	}
@@ -345,7 +410,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 
 	// Create session with command directly to avoid send-keys race condition.
 	// See: https://github.com/anthropics/gastown/issues/280
-	if err := m.tmux.NewSessionWithCommand(sessionID, workDir, command); err != nil {
+	if err := effectiveTmux.NewSessionWithCommand(sessionID, workDir, command); err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
 
@@ -356,13 +421,13 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 		Role:             "polecat",
 		Rig:              m.rig.Name,
 		AgentName:        polecat,
-		TownRoot:         townRoot,
+		TownRoot:         effectiveTownRoot,
 		RuntimeConfigDir: opts.RuntimeConfigDir,
 		Agent:            opts.Agent,
 		SessionName:      sessionID,
 	})
 	for k, v := range envVars {
-		debugSession("SetEnvironment "+k, m.tmux.SetEnvironment(sessionID, k, v))
+		debugSession("SetEnvironment "+k, effectiveTmux.SetEnvironment(sessionID, k, v))
 	}
 
 	// Fallback: set GT_AGENT from resolved config when no explicit --agent override.
@@ -373,101 +438,107 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// exec env, but tmux show-environment reads the session table, not process env.
 	// This mirrors the daemon's compensating logic (daemon.go ~line 1593-1595).
 	if _, hasGTAgent := envVars["GT_AGENT"]; !hasGTAgent && runtimeConfig.ResolvedAgent != "" {
-		debugSession("SetEnvironment GT_AGENT (resolved)", m.tmux.SetEnvironment(sessionID, "GT_AGENT", runtimeConfig.ResolvedAgent))
+		debugSession("SetEnvironment GT_AGENT (resolved)", effectiveTmux.SetEnvironment(sessionID, "GT_AGENT", runtimeConfig.ResolvedAgent))
 	}
 
 	// Set GT_BRANCH and GT_POLECAT_PATH in tmux session environment.
 	// This ensures respawned processes also inherit these for gt done fallback.
 	if polecatGitBranch != "" {
-		debugSession("SetEnvironment GT_BRANCH", m.tmux.SetEnvironment(sessionID, "GT_BRANCH", polecatGitBranch))
+		debugSession("SetEnvironment GT_BRANCH", effectiveTmux.SetEnvironment(sessionID, "GT_BRANCH", polecatGitBranch))
 	}
-	debugSession("SetEnvironment GT_POLECAT_PATH", m.tmux.SetEnvironment(sessionID, "GT_POLECAT_PATH", workDir))
-	debugSession("SetEnvironment GT_TOWN_ROOT", m.tmux.SetEnvironment(sessionID, "GT_TOWN_ROOT", townRoot))
+	debugSession("SetEnvironment GT_POLECAT_PATH", effectiveTmux.SetEnvironment(sessionID, "GT_POLECAT_PATH", workDir))
+	debugSession("SetEnvironment GT_TOWN_ROOT", effectiveTmux.SetEnvironment(sessionID, "GT_TOWN_ROOT", effectiveTownRoot))
 	// Set GT_RUN in the session environment so respawned processes also inherit it.
-	debugSession("SetEnvironment GT_RUN", m.tmux.SetEnvironment(sessionID, "GT_RUN", runID))
+	debugSession("SetEnvironment GT_RUN", effectiveTmux.SetEnvironment(sessionID, "GT_RUN", runID))
 
 	// Disable Dolt auto-commit in tmux session environment (gt-5cc2p).
 	// This ensures respawned processes also inherit the setting.
-	debugSession("SetEnvironment BD_DOLT_AUTO_COMMIT", m.tmux.SetEnvironment(sessionID, "BD_DOLT_AUTO_COMMIT", "off"))
+	debugSession("SetEnvironment BD_DOLT_AUTO_COMMIT", effectiveTmux.SetEnvironment(sessionID, "BD_DOLT_AUTO_COMMIT", "off"))
+
+	// For remote sessions: also persist the Dolt host in the tmux session environment.
+	if remoteSettings.RemoteHost != "" && remoteSettings.RemoteDoltHost != "" {
+		debugSession("SetEnvironment BD_DOLT_HOST", effectiveTmux.SetEnvironment(sessionID, "BD_DOLT_HOST", remoteSettings.RemoteDoltHost))
+	}
 
 	// Set GT_PROCESS_NAMES for accurate liveness detection. Custom agents may
 	// shadow built-in preset names (e.g., custom "codex" running "opencode"),
 	// so we resolve process names from both agent name and actual command.
 	processNames := config.ResolveProcessNames(runtimeConfig.ResolvedAgent, runtimeConfig.Command)
-	debugSession("SetEnvironment GT_PROCESS_NAMES", m.tmux.SetEnvironment(sessionID, "GT_PROCESS_NAMES", strings.Join(processNames, ",")))
+	debugSession("SetEnvironment GT_PROCESS_NAMES", effectiveTmux.SetEnvironment(sessionID, "GT_PROCESS_NAMES", strings.Join(processNames, ",")))
 
 	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
 	// Declared pane identity replaces process-tree inference in IsRuntimeRunning
 	// and FindAgentPane. Legacy sessions without GT_PANE_ID fall back to scanning.
-	if paneID, err := m.tmux.GetPaneID(sessionID); err == nil {
-		debugSession("SetEnvironment GT_PANE_ID", m.tmux.SetEnvironment(sessionID, "GT_PANE_ID", paneID))
+	if paneID, err := effectiveTmux.GetPaneID(sessionID); err == nil {
+		debugSession("SetEnvironment GT_PANE_ID", effectiveTmux.SetEnvironment(sessionID, "GT_PANE_ID", paneID))
 	}
 
 	// Hook the issue to the polecat if provided via --issue flag
 	if opts.Issue != "" {
 		agentID := fmt.Sprintf("%s/polecats/%s", m.rig.Name, polecat)
-		if err := m.hookIssue(opts.Issue, agentID, workDir); err != nil {
+		if err := m.hookIssue(opts.Issue, agentID, localClonePath); err != nil {
 			style.PrintWarning("could not hook issue %s: %v", opts.Issue, err)
 		}
 	}
 
-	// Apply theme (non-fatal)
+	// Apply theme (non-fatal; uses local tmux for theme resolution)
 	theme := tmux.ResolveSessionTheme(townRoot, m.rig.Name, "polecat")
-	debugSession("ConfigureGasTownSession", m.tmux.ConfigureGasTownSession(sessionID, theme, m.rig.Name, polecat, "polecat"))
+	debugSession("ConfigureGasTownSession", effectiveTmux.ConfigureGasTownSession(sessionID, theme, m.rig.Name, polecat, "polecat"))
 
 	// Set pane-died hook for crash detection (non-fatal)
 	agentID := fmt.Sprintf("%s/%s", m.rig.Name, polecat)
-	debugSession("SetPaneDiedHook", m.tmux.SetPaneDiedHook(sessionID, agentID))
+	debugSession("SetPaneDiedHook", effectiveTmux.SetPaneDiedHook(sessionID, agentID))
 
 	// Wait for Claude to start (non-fatal)
-	debugSession("WaitForCommand", m.tmux.WaitForCommand(sessionID, constants.SupportedShells, constants.ClaudeStartTimeout))
+	debugSession("WaitForCommand", effectiveTmux.WaitForCommand(sessionID, constants.SupportedShells, constants.ClaudeStartTimeout))
 
 	// Accept startup dialogs (workspace trust + bypass permissions) if they appear
-	debugSession("AcceptStartupDialogs", m.tmux.AcceptStartupDialogs(sessionID))
+	debugSession("AcceptStartupDialogs", effectiveTmux.AcceptStartupDialogs(sessionID))
 
 	// Wait for runtime to be fully ready at the prompt (not just started).
 	// Uses prompt-based polling for agents with ReadyPromptPrefix (e.g., Claude "❯ "),
 	// falling back to ReadyDelayMs sleep for agents without prompt detection.
-	debugSession("WaitForRuntimeReady", m.tmux.WaitForRuntimeReady(sessionID, runtimeConfig, constants.ClaudeStartTimeout))
+	debugSession("WaitForRuntimeReady", effectiveTmux.WaitForRuntimeReady(sessionID, runtimeConfig, constants.ClaudeStartTimeout))
 
 	// Handle fallback nudges for non-hook agents.
 	// See StartupFallbackInfo in runtime package for the fallback matrix.
 	if fallbackInfo.SendBeaconNudge && fallbackInfo.SendStartupNudge && fallbackInfo.StartupNudgeDelayMs == 0 {
 		// Hooks + no prompt: Single combined nudge (hook already ran gt prime synchronously)
 		combined := beacon + "\n\n" + runtime.StartupNudgeContent()
-		debugSession("SendCombinedNudge", m.tmux.NudgeSession(sessionID, combined))
+		debugSession("SendCombinedNudge", effectiveTmux.NudgeSession(sessionID, combined))
 	} else {
 		if fallbackInfo.SendBeaconNudge {
 			// Agent doesn't support CLI prompt - send beacon via nudge
-			debugSession("SendBeaconNudge", m.tmux.NudgeSession(sessionID, beacon))
+			debugSession("SendBeaconNudge", effectiveTmux.NudgeSession(sessionID, beacon))
 		}
 
 		if fallbackInfo.StartupNudgeDelayMs > 0 {
 			// Wait for agent to finish processing beacon + gt prime before sending work instructions.
 			// Uses prompt-based detection where available; falls back to max(ReadyDelayMs, StartupNudgeDelayMs).
 			primeWaitRC := runtime.RuntimeConfigWithMinDelay(runtimeConfig, fallbackInfo.StartupNudgeDelayMs)
-			debugSession("WaitForPrimeReady", m.tmux.WaitForRuntimeReady(sessionID, primeWaitRC, constants.ClaudeStartTimeout))
+			debugSession("WaitForPrimeReady", effectiveTmux.WaitForRuntimeReady(sessionID, primeWaitRC, constants.ClaudeStartTimeout))
 		}
 
 		if fallbackInfo.SendStartupNudge {
 			// Send work instructions via nudge
-			debugSession("SendStartupNudge", m.tmux.NudgeSession(sessionID, runtime.StartupNudgeContent()))
+			debugSession("SendStartupNudge", effectiveTmux.NudgeSession(sessionID, runtime.StartupNudgeContent()))
 		}
 	}
 
 	// Verify startup nudge was delivered: poll for idle prompt and retry if lost.
 	// This fixes the Mode B race where the nudge arrives before Claude Code is ready,
 	// causing the polecat to sit idle at an empty prompt. See GH#1379.
-	if fallbackInfo.SendStartupNudge {
+	// Skipped for remote sessions — nudge delivery verification uses local tmux.
+	if fallbackInfo.SendStartupNudge && remoteSettings.RemoteHost == "" {
 		m.verifyStartupNudgeDelivery(context.Background(), sessionID, runtimeConfig)
 	}
 
 	// Legacy fallback for other startup paths (non-fatal)
-	_ = runtime.RunStartupFallback(m.tmux, sessionID, "polecat", runtimeConfig)
+	_ = runtime.RunStartupFallback(effectiveTmux, sessionID, "polecat", runtimeConfig)
 
 	// Verify session survived startup - if the command crashed, the session may have died.
 	// Without this check, Start() would return success even if the pane died during initialization.
-	running, err = m.tmux.HasSession(sessionID)
+	running, err = effectiveTmux.HasSession(sessionID)
 	if err != nil {
 		return fmt.Errorf("verifying session: %w", err)
 	}
@@ -478,24 +549,27 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// Validate GT_AGENT is set. Without GT_AGENT, IsAgentAlive falls back to
 	// ["node", "claude"] process detection and witness patrol will auto-nuke
 	// polecats running non-Claude agents (e.g., opencode). Fail fast.
-	gtAgent, _ := m.tmux.GetEnvironment(sessionID, "GT_AGENT")
+	gtAgent, _ := effectiveTmux.GetEnvironment(sessionID, "GT_AGENT")
 	if gtAgent == "" {
-		_ = m.tmux.KillSessionWithProcesses(sessionID)
+		_ = effectiveTmux.KillSessionWithProcesses(sessionID)
 		return fmt.Errorf("GT_AGENT not set in session %s (command=%q); "+
 			"witness patrol will misidentify this polecat as a zombie and auto-nuke it. "+
 			"Ensure RuntimeConfig.ResolvedAgent is set during agent config resolution",
 			sessionID, runtimeConfig.Command)
 	}
 
-	// Track PID for defense-in-depth orphan cleanup (non-fatal)
-	_ = session.TrackSessionPID(townRoot, sessionID, m.tmux)
+	// Track PID for defense-in-depth orphan cleanup (non-fatal; local-only).
+	if remoteSettings.RemoteHost == "" {
+		_ = session.TrackSessionPID(townRoot, sessionID, m.tmux)
+	}
 
 	// Touch initial heartbeat so liveness detection works from the start (gt-qjtq).
 	// Subsequent touches happen on every gt command via persistentPreRun.
 	TouchSessionHeartbeat(townRoot, sessionID)
 
 	// Stream polecat's Claude Code JSONL conversation log to VictoriaLogs (opt-in).
-	if os.Getenv("GT_LOG_AGENT_OUTPUT") == "true" && os.Getenv("GT_OTEL_LOGS_URL") != "" {
+	// Skipped for remote sessions — log files are on the remote machine.
+	if remoteSettings.RemoteHost == "" && os.Getenv("GT_LOG_AGENT_OUTPUT") == "true" && os.Getenv("GT_OTEL_LOGS_URL") != "" {
 		if err := session.ActivateAgentLogging(sessionID, workDir, runID); err != nil {
 			// Non-fatal: observability failure must never block agent startup.
 			debugSession("ActivateAgentLogging", err)
@@ -876,5 +950,102 @@ func (m *SessionManager) hookIssue(issueID, agentID, workDir string) error {
 		return fmt.Errorf("bd update failed: %w", err)
 	}
 	fmt.Printf("✓ Hooked issue %s to %s\n", issueID, agentID)
+	return nil
+}
+
+// remoteSessionSettings holds remote execution parameters loaded from rig settings.
+type remoteSessionSettings struct {
+	RemoteHost     string // SSH host, e.g. "build-machine.example.com"
+	RemoteTownRoot string // town root on remote, e.g. "/home/user/gt" (empty = derive from $HOME)
+	RemoteDoltHost string // Dolt host reachable from remote, e.g. "192.168.1.10:3307"
+}
+
+// remoteTownRootAbs returns an absolute town root path.
+// If RemoteTownRoot is already set (from config), returns it directly.
+// Otherwise derives it from the workDir by stripping the polecat subpath.
+// workDir format: <remoteTownRoot>/<rig>/polecats/<name>/<rig>
+// Strips 4 components: <rig>, polecats, <name>, <rig>
+func (s *remoteSessionSettings) remoteTownRootAbs(workDir string) string {
+	if s.RemoteTownRoot != "" {
+		return s.RemoteTownRoot
+	}
+	// Derive from workDir: strip /<rig>/polecats/<name>/<rig> suffix (4 path components)
+	p := workDir
+	for range 4 {
+		p = filepath.Dir(p)
+		if p == "." || p == "/" {
+			return workDir // fallback: can't derive, use workDir
+		}
+	}
+	return p
+}
+
+// loadRemoteSettings reads remote execution configuration from rig settings.
+// Returns a zero-value struct if no remote host is configured.
+func loadRemoteSettings(rigPath string) remoteSessionSettings {
+	settingsPath := filepath.Join(rigPath, "settings", "config.json")
+	settings, err := config.LoadRigSettings(settingsPath)
+	if err != nil || settings == nil || settings.RemoteHost == "" {
+		return remoteSessionSettings{}
+	}
+	return remoteSessionSettings{
+		RemoteHost:     settings.RemoteHost,
+		RemoteTownRoot: settings.RemoteTownRoot,
+		RemoteDoltHost: settings.RemoteDoltHost,
+	}
+}
+
+// remotePolecatWorkDir builds the absolute working directory path for a polecat
+// on the remote machine. Mirrors the local Gas Town directory structure:
+//
+//	<remoteTownRoot>/<rig>/polecats/<polecat>/<rig>
+//
+// When remoteTownRoot is empty (not configured), defaults to <remoteHome>/gt.
+func remotePolecatWorkDir(remoteHome, remoteTownRoot, rigName, polecatName string) string {
+	root := remoteTownRoot
+	if root == "" {
+		root = filepath.Join(remoteHome, "gt")
+	}
+	return filepath.Join(root, rigName, "polecats", polecatName, rigName)
+}
+
+// ensureRemoteClone ensures the upstream git repository is cloned at workDir on the
+// remote host, with the specified branch checked out. If the branch does not exist
+// on the remote (it is a new local-only branch), it is created from the default
+// upstream branch.
+//
+// This is called once per remote polecat session startup. If the clone already
+// exists and the branch is already checked out, the operation is a no-op.
+func ensureRemoteClone(remoteHost, gitURL, workDir, branch string) error {
+	// Build a single shell script executed on the remote via SSH.
+	// Using a heredoc-style script avoids multiple SSH round trips and allows
+	// shell-native expansion of variables like $? for error checking.
+	var script strings.Builder
+	fmt.Fprintf(&script, "set -e\n")
+	fmt.Fprintf(&script, "WORK_DIR=%s\n", tmux.ShellSingleQuote(workDir))
+	fmt.Fprintf(&script, "GIT_URL=%s\n", tmux.ShellSingleQuote(gitURL))
+	fmt.Fprintf(&script, "BRANCH=%s\n", tmux.ShellSingleQuote(branch))
+
+	// Clone if not already present
+	fmt.Fprintf(&script, "if [ ! -d \"$WORK_DIR/.git\" ]; then\n")
+	fmt.Fprintf(&script, "  mkdir -p \"$(dirname \"$WORK_DIR\")\"\n")
+	fmt.Fprintf(&script, "  git clone \"$GIT_URL\" \"$WORK_DIR\"\n")
+	fmt.Fprintf(&script, "fi\n")
+
+	// Checkout branch (create from origin HEAD if it doesn't exist locally)
+	fmt.Fprintf(&script, "if [ -n \"$BRANCH\" ]; then\n")
+	fmt.Fprintf(&script, "  git -C \"$WORK_DIR\" fetch origin --quiet 2>/dev/null || true\n")
+	fmt.Fprintf(&script, "  if git -C \"$WORK_DIR\" checkout \"$BRANCH\" 2>/dev/null; then\n")
+	fmt.Fprintf(&script, "    : # branch already exists, checked out\n")
+	fmt.Fprintf(&script, "  else\n")
+	fmt.Fprintf(&script, "    git -C \"$WORK_DIR\" checkout -b \"$BRANCH\"\n")
+	fmt.Fprintf(&script, "  fi\n")
+	fmt.Fprintf(&script, "fi\n")
+
+	cmd := exec.Command("ssh", remoteHost, "bash", "-s") //nolint:gosec // remoteHost is from validated config
+	cmd.Stdin = strings.NewReader(script.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("remote clone setup failed on %s: %w\n%s", remoteHost, err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }

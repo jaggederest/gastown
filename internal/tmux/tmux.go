@@ -168,6 +168,7 @@ func BuildCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 // Tmux wraps tmux operations.
 type Tmux struct {
 	socketName string // tmux socket name (-L flag), empty = default socket
+	remoteHost string // SSH host for remote tmux operations (empty = local)
 }
 
 // noTownSocket is a sentinel socket name used when no town socket is configured.
@@ -203,18 +204,63 @@ func NewTmuxWithSocket(socket string) *Tmux {
 	return &Tmux{socketName: socket}
 }
 
+// NewTmuxForRemote creates a Tmux wrapper that executes commands on a remote host via SSH.
+// All tmux operations are forwarded to the remote machine's default tmux server.
+// The socketName is ignored for remote sessions (remote uses its own server).
+func NewTmuxForRemote(remoteHost string) *Tmux {
+	return &Tmux{remoteHost: remoteHost}
+}
+
+// RemoteHost returns the SSH host for remote tmux operations, or empty for local.
+func (t *Tmux) RemoteHost() string {
+	return t.remoteHost
+}
+
+// GetRemoteHome returns the home directory path on the target host.
+// For remote hosts, performs a single SSH call ("echo $HOME").
+// For local hosts, uses os.UserHomeDir().
+func (t *Tmux) GetRemoteHome() (string, error) {
+	if t.remoteHost == "" {
+		return os.UserHomeDir()
+	}
+	out, err := exec.Command("ssh", t.remoteHost, "echo $HOME").Output()
+	if err != nil {
+		return "", fmt.Errorf("getting remote home dir on %s: %w", t.remoteHost, err)
+	}
+	home := strings.TrimSpace(string(out))
+	if home == "" {
+		return "", fmt.Errorf("remote $HOME is empty on %s", t.remoteHost)
+	}
+	return home, nil
+}
+
 // run executes a tmux command and returns stdout.
 // All commands include -u flag for UTF-8 support regardless of locale settings.
+// When remoteHost is set, the command is forwarded to the remote host via SSH.
 // See: https://github.com/steveyegge/gastown/issues/1219
 func (t *Tmux) run(args ...string) (string, error) {
 	// Prepend global flags: -u (UTF-8 mode, PATCH-004) and optionally -L (socket).
 	// The -L flag must come before the subcommand, so it goes in the prefix.
 	allArgs := []string{"-u"}
-	if t.socketName != "" {
+	if t.socketName != "" && t.remoteHost == "" {
+		// Only use socket name for local sessions; remote has its own tmux server.
 		allArgs = append(allArgs, "-L", t.socketName)
 	}
 	allArgs = append(allArgs, args...)
-	cmd := exec.Command("tmux", allArgs...)
+
+	var cmd *exec.Cmd
+	if t.remoteHost != "" {
+		// Forward tmux command to remote host via SSH.
+		// Build a shell-safe command string for execution on the remote.
+		remoteParts := make([]string, 0, len(allArgs)+1)
+		remoteParts = append(remoteParts, "tmux")
+		remoteParts = append(remoteParts, allArgs...)
+		remoteCmd := shellJoinForSSH(remoteParts)
+		cmd = exec.Command("ssh", t.remoteHost, remoteCmd)
+	} else {
+		cmd = exec.Command("tmux", allArgs...)
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -225,6 +271,23 @@ func (t *Tmux) run(args ...string) (string, error) {
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// shellJoinForSSH joins command parts into a single shell-safe string for SSH execution.
+// Each argument is single-quoted to prevent shell expansion on the remote host.
+func shellJoinForSSH(parts []string) string {
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		quoted[i] = ShellSingleQuote(p)
+	}
+	return strings.Join(quoted, " ")
+}
+
+// ShellSingleQuote wraps s in single quotes, escaping any embedded single quotes.
+// Used to safely pass arguments to a remote shell via SSH.
+func ShellSingleQuote(s string) string {
+	// Single-quote the string; replace any ' inside with '\''
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // wrapError wraps tmux errors with context.
@@ -284,17 +347,21 @@ func (t *Tmux) NewSessionWithCommand(name, workDir, command string) error {
 	if err := validateSessionName(name); err != nil {
 		return err
 	}
-	if workDir != "" {
-		info, err := os.Stat(workDir)
-		if err != nil {
-			return fmt.Errorf("invalid work directory %q: %w", workDir, err)
+	// Skip local filesystem validation for remote sessions:
+	// workDir and command binary exist on the remote machine, not locally.
+	if t.remoteHost == "" {
+		if workDir != "" {
+			info, err := os.Stat(workDir)
+			if err != nil {
+				return fmt.Errorf("invalid work directory %q: %w", workDir, err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("work directory %q is not a directory", workDir)
+			}
 		}
-		if !info.IsDir() {
-			return fmt.Errorf("work directory %q is not a directory", workDir)
+		if err := validateCommandBinary(command); err != nil {
+			return err
 		}
-	}
-	if err := validateCommandBinary(command); err != nil {
-		return err
 	}
 
 	// Defense-in-depth: remove CLAUDECODE from the tmux server's global
@@ -353,19 +420,25 @@ func (t *Tmux) NewSessionWithCommandAndEnv(name, workDir, command string, env ma
 
 	// Kill stale same-named sessions on other sockets to prevent split-brain.
 	// This is best-effort: failures are silently ignored.
-	t.killSplitBrainSession(name)
-
-	if workDir != "" {
-		info, err := os.Stat(workDir)
-		if err != nil {
-			return fmt.Errorf("invalid work directory %q: %w", workDir, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("work directory %q is not a directory", workDir)
-		}
+	if t.remoteHost == "" {
+		t.killSplitBrainSession(name)
 	}
-	if err := validateCommandBinary(command); err != nil {
-		return err
+
+	// Skip local filesystem validation for remote sessions:
+	// workDir and command binary exist on the remote machine, not locally.
+	if t.remoteHost == "" {
+		if workDir != "" {
+			info, err := os.Stat(workDir)
+			if err != nil {
+				return fmt.Errorf("invalid work directory %q: %w", workDir, err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("work directory %q is not a directory", workDir)
+			}
+		}
+		if err := validateCommandBinary(command); err != nil {
+			return err
+		}
 	}
 
 	// Two-step creation: create session with env vars and default shell, then

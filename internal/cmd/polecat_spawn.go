@@ -27,11 +27,12 @@ import (
 type SpawnedPolecatInfo struct {
 	RigName     string // Rig name (e.g., "gastown")
 	PolecatName string // Polecat name (e.g., "Toast")
-	ClonePath   string // Path to polecat's git worktree
+	ClonePath   string // Path to polecat's git worktree (local; used for branch tracking)
 	SessionName string // Tmux session name (e.g., "gt-gastown-p-Toast")
-	Pane        string // Tmux pane ID (empty until StartSession is called)
+	Pane        string // Tmux pane ID (empty until StartSession is called; always empty for remote)
 	BaseBranch  string // Effective base branch (e.g., "main", "integration/epic-id")
 	Branch      string // Git branch name (for cleanup on rollback)
+	RemoteHost  string // SSH host for remote polecat execution (empty = local)
 
 	// Internal fields for deferred session start
 	account string
@@ -81,6 +82,9 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	if err != nil {
 		return nil, fmt.Errorf("rig '%s' not found", rigName)
 	}
+
+	// Load remote host from rig settings (empty = local execution).
+	rigRemoteHost := loadRigRemoteHost(r.Path)
 
 	// Get polecat manager (with tmux for session-aware allocation)
 	polecatGit := git.NewGit(r.Path)
@@ -257,6 +261,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			Pane:        "",
 			BaseBranch:  effectiveBranch,
 			Branch:      polecatObj.Branch,
+			RemoteHost:  rigRemoteHost,
 			account:     opts.Account,
 			agent:       opts.Agent,
 		}, nil
@@ -344,6 +349,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		Pane:        "", // Empty until StartSession is called
 		BaseBranch:  effectiveBranch,
 		Branch:      polecatObj.Branch,
+		RemoteHost:  rigRemoteHost,
 		account:     opts.Account,
 		agent:       opts.Agent,
 	}, nil
@@ -384,8 +390,13 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 		return "", fmt.Errorf("resolving account: %w", err)
 	}
 
-	// Start session
+	// Create local and effective (possibly remote) tmux wrappers.
 	t := tmux.NewTmux()
+	effectiveTmux := t
+	if s.RemoteHost != "" {
+		effectiveTmux = tmux.NewTmuxForRemote(s.RemoteHost)
+	}
+
 	polecatSessMgr := polecat.NewSessionManager(t, r)
 
 	fmt.Printf("Starting session for %s/%s...\n", s.RigName, s.PolecatName)
@@ -416,7 +427,7 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 	} else {
 		runtimeConfig = config.ResolveRoleAgentConfig("polecat", spawnTownRoot, r.Path)
 	}
-	if err := t.WaitForRuntimeReady(s.SessionName, runtimeConfig, 30*time.Second); err != nil {
+	if err := effectiveTmux.WaitForRuntimeReady(s.SessionName, runtimeConfig, 30*time.Second); err != nil {
 		style.PrintWarning("runtime may not be fully ready: %v", err)
 	}
 
@@ -436,6 +447,15 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 	// Also warn-only for the same reason: session is already running.
 	if err := polecatMgr.SetState(s.PolecatName, polecat.StateWorking); err != nil {
 		style.PrintWarning("could not update issue status to in_progress: %v", err)
+	}
+
+	// For remote sessions, we cannot retrieve the pane ID from the remote tmux server
+	// in a way that's meaningful for local nudge operations. Remote polecats discover
+	// their work via gt prime on startup (beacon + hook). Return empty pane — callers
+	// check for this and fall through to the "agent will discover work via gt prime" path.
+	if s.RemoteHost != "" {
+		s.Pane = ""
+		return "", nil
 	}
 
 	// Get pane — if this fails, the session may have died during startup.
@@ -536,4 +556,15 @@ func verifyWorktreeExists(clonePath string) error {
 	}
 
 	return nil
+}
+
+// loadRigRemoteHost returns the remote_host value from a rig's settings/config.json,
+// or empty string if not configured or on error.
+func loadRigRemoteHost(rigPath string) string {
+	settingsPath := filepath.Join(rigPath, "settings", "config.json")
+	settings, err := config.LoadRigSettings(settingsPath)
+	if err != nil || settings == nil {
+		return ""
+	}
+	return settings.RemoteHost
 }

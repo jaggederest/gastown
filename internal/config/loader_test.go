@@ -5651,3 +5651,59 @@ func TestBuildStartupCommandWithAgentOverride_NoDoubleSettingsOnNonOverridePath(
 		t.Errorf("default Claude agent on polecat role should still get --settings, got: %q", cmd)
 	}
 }
+
+func TestRigSettings_RemoteHost_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	original := &RigSettings{
+		Type:           "rig-settings",
+		Version:        1,
+		RemoteHost:     "build-machine.example.com",
+		RemoteTownRoot: "/home/builder/gt",
+		RemoteDoltHost: "192.168.1.10:3307",
+	}
+
+	if err := SaveRigSettings(path, original); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	loaded, err := LoadRigSettings(path)
+	if err != nil {
+		t.Fatalf("LoadRigSettings: %v", err)
+	}
+
+	if loaded.RemoteHost != original.RemoteHost {
+		t.Errorf("RemoteHost = %q, want %q", loaded.RemoteHost, original.RemoteHost)
+	}
+	if loaded.RemoteTownRoot != original.RemoteTownRoot {
+		t.Errorf("RemoteTownRoot = %q, want %q", loaded.RemoteTownRoot, original.RemoteTownRoot)
+	}
+	if loaded.RemoteDoltHost != original.RemoteDoltHost {
+		t.Errorf("RemoteDoltHost = %q, want %q", loaded.RemoteDoltHost, original.RemoteDoltHost)
+	}
+}
+
+func TestRigSettings_RemoteHost_OmitEmpty(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	// A rig without remote_host should omit the field entirely.
+	original := &RigSettings{
+		Type:    "rig-settings",
+		Version: 1,
+	}
+	if err := SaveRigSettings(path, original); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "remote_host") {
+		t.Errorf("remote_host should be omitted when empty, but found in JSON: %s", data)
+	}
+}

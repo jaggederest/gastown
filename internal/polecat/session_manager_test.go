@@ -636,3 +636,96 @@ func TestPolecatSlot(t *testing.T) {
 		t.Errorf("with hidden dir: polecatSlot(beta) = %d, want 1", slot)
 	}
 }
+
+func TestRemotePolecatWorkDir(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		remoteHome     string
+		remoteTownRoot string
+		rigName        string
+		polecatName    string
+		want           string
+	}{
+		{
+			remoteHome:     "/home/builder",
+			remoteTownRoot: "",
+			rigName:        "locque",
+			polecatName:    "toast",
+			want:           "/home/builder/gt/locque/polecats/toast/locque",
+		},
+		{
+			remoteHome:     "/home/builder",
+			remoteTownRoot: "/home/builder/mygt",
+			rigName:        "worldsim",
+			polecatName:    "butter",
+			want:           "/home/builder/mygt/worldsim/polecats/butter/worldsim",
+		},
+	}
+	for _, tc := range tests {
+		got := remotePolecatWorkDir(tc.remoteHome, tc.remoteTownRoot, tc.rigName, tc.polecatName)
+		if got != tc.want {
+			t.Errorf("remotePolecatWorkDir(%q, %q, %q, %q) = %q, want %q",
+				tc.remoteHome, tc.remoteTownRoot, tc.rigName, tc.polecatName, got, tc.want)
+		}
+	}
+}
+
+func TestLoadRemoteSettings_Empty(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// No settings file → should return zero-value struct
+	s := loadRemoteSettings(dir)
+	if s.RemoteHost != "" {
+		t.Errorf("expected empty RemoteHost for missing settings, got %q", s.RemoteHost)
+	}
+}
+
+func TestLoadRemoteSettings_WithRemoteHost(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	settingsDir := filepath.Join(dir, "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `{"type":"rig-settings","version":1,"remote_host":"build.example.com","remote_dolt_host":"10.0.0.1:3307"}`
+	if err := os.WriteFile(filepath.Join(settingsDir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := loadRemoteSettings(dir)
+	if s.RemoteHost != "build.example.com" {
+		t.Errorf("RemoteHost = %q, want %q", s.RemoteHost, "build.example.com")
+	}
+	if s.RemoteDoltHost != "10.0.0.1:3307" {
+		t.Errorf("RemoteDoltHost = %q, want %q", s.RemoteDoltHost, "10.0.0.1:3307")
+	}
+}
+
+func TestRemoteSessionSettings_RemoteTownRootAbs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		settings remoteSessionSettings
+		workDir  string
+		want     string
+	}{
+		{
+			// RemoteTownRoot explicitly configured → return as-is
+			settings: remoteSessionSettings{RemoteTownRoot: "/home/builder/gt"},
+			workDir:  "/home/builder/gt/myrig/polecats/toast/myrig",
+			want:     "/home/builder/gt",
+		},
+		{
+			// RemoteTownRoot not set → derive from workDir (strip 5 path components)
+			settings: remoteSessionSettings{},
+			workDir:  "/home/builder/gt/myrig/polecats/toast/myrig",
+			want:     "/home/builder/gt",
+		},
+	}
+	for _, tc := range tests {
+		got := tc.settings.remoteTownRootAbs(tc.workDir)
+		if got != tc.want {
+			t.Errorf("remoteTownRootAbs(%q) = %q, want %q", tc.workDir, got, tc.want)
+		}
+	}
+}

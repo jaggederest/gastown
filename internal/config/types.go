@@ -683,6 +683,25 @@ type RigSettings struct {
 	// for agent selection purposes. This lets rig operators limit compute cost.
 	// 0 means uncapped (use bead's complexity level as-is).
 	MaxComplexity int `json:"max_complexity,omitempty"`
+
+	// RemoteHost is the SSH host for remote polecat execution.
+	// When set, gt sling creates polecat sessions on the remote machine via SSH.
+	// The remote machine must have git access to the same upstream repo and
+	// network access to Dolt on port 3307 for beads operations.
+	// Examples: "build-machine.example.com", "user@192.168.1.100"
+	// Use case: offload heavy compilation (Rust, Haskell) from the coordination machine.
+	RemoteHost string `json:"remote_host,omitempty"`
+
+	// RemoteTownRoot is the Gas Town root directory on the remote host.
+	// Defaults to "$HOME/gt" on the remote machine if not set.
+	// The remote polecat's worktree is created at <RemoteTownRoot>/<rig>/polecats/<name>/<rig>.
+	RemoteTownRoot string `json:"remote_town_root,omitempty"`
+
+	// RemoteDoltHost is the address of the Dolt server as reachable from the remote host.
+	// When set, BD_DOLT_HOST is injected into the remote polecat's environment.
+	// Required when the Dolt server is not reachable at "localhost:3307" from the remote.
+	// Example: "192.168.1.10:3307"
+	RemoteDoltHost string `json:"remote_dolt_host,omitempty"`
 }
 
 // CrewConfig represents crew workspace settings for a rig.
